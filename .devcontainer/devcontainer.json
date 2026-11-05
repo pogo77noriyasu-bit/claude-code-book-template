@@ -6,5 +6,12 @@
     "ghcr.io/devcontainers/features/node:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": ".devcontainer/post_create.sh"
+  "postCreateCommand": ".devcontainer/post_create.sh",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "task-manager",
+      "requireLocalPort": true
+    }
+  }
 }
