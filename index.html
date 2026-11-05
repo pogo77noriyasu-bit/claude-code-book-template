@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ゲーム・アプリ一覧</title>
+  <meta name="description" content="ブラウザで遊べるゲームと、タスク管理アプリの一覧です。">
+  <style>
+    /* 色は CSS 変数で定義し、ダークモードでは切り替える */
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #1f2330;
+      --muted: #5d6475;
+      --border: #dfe2ea;
+      --accent: #3f6fd8;
+      --badge-bg: #e8eefc;
+      --note-bg: #fff6e0;
+      --note-text: #6b5210;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14161c;
+        --card: #1e2129;
+        --text: #e8eaf0;
+        --muted: #9aa1b2;
+        --border: #2e323d;
+        --accent: #7ea2f5;
+        --badge-bg: #26304a;
+        --note-bg: #332a12;
+        --note-text: #f0d68c;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      line-height: 1.7;
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 16px 64px;
+    }
+
+    h1 { font-size: 1.8rem; margin: 0 0 4px; }
+    .lead { color: var(--muted); margin: 0 0 40px; }
+    h2 { font-size: 1.15rem; margin: 40px 0 16px; }
+
+    /* カードを並べるグリッド(狭い画面では1列になる) */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: inherit;
+      text-decoration: none;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    a.card:hover, a.card:focus-visible {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .card h3 { margin: 0 0 6px; font-size: 1.1rem; }
+    .card p { margin: 0 0 16px; color: var(--muted); font-size: 0.92rem; flex: 1; }
+
+    .badge {
+      align-self: flex-start;
+      font-size: 0.78rem;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: var(--badge-bg);
+      color: var(--accent);
+    }
+
+    .note {
+      margin: 0 0 16px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--note-bg);
+      color: var(--note-text);
+      font-size: 0.85rem;
+    }
+    .note code { font-size: 0.85em; }
+
+    .card .link { color: var(--accent); font-size: 0.92rem; }
+
+    footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ゲーム・アプリ一覧</h1>
+    <p class="lead">このリポジトリで作ったゲームとアプリです。ゲームはクリックするとブラウザですぐに遊べます。</p>
+
+    <!-- ゲーム: 静的ファイルなので GitHub Pages でそのまま動く -->
+    <h2>ゲーム</h2>
+    <ul class="grid">
+      <li>
+        <a class="card" href="games/breakout/">
+          <h3>ブロック崩し</h3>
+          <p>パドルでボールを打ち返して、ブロックをすべて壊そう。</p>
+          <span class="badge">遊ぶ →</span>
+        </a>
+      </li>
+      <li>
+        <a class="card" href="games/meteor-dodge/">
+          <h3>流星よけ</h3>
+          <p>降ってくる隕石をよけながら、星を集める避けゲー。</p>
+          <span class="badge">遊ぶ →</span>
+        </a>
+      </li>
+      <li>
+        <a class="card" href="games/hori-pon/">
+          <h3>ほりポン</h3>
+          <p>土を掘り進み、モヒカンパンクが怒った女子をポンプでふくらませたりビールで潰したりする穴掘りアクション。</p>
+          <span class="badge">遊ぶ →</span>
+        </a>
+      </li>
+    </ul>
+
+    <!-- アプリ: Vite のビルドが必要なため、Pages ではソースへのリンクにしている -->
+    <h2>アプリ</h2>
+    <ul class="grid">
+      <li>
+        <div class="card">
+          <h3>タスク管理</h3>
+          <p>タスクの追加・編集・削除・完了マークができるタスク管理アプリ(React + Vite)。</p>
+          <p class="note">ビルドが必要なアプリのため、このページからは動かせません。<code>apps/task-manager/</code> で <code>npm install</code> → <code>npm run dev</code> を実行して使ってください。</p>
+          <a class="link" href="https://github.com/pogo77noriyasu-bit/claude-code-book-template/tree/main/apps/task-manager">ソースコードを見る →</a>
+        </div>
+      </li>
+    </ul>
+
+    <footer>
+      <a href="https://github.com/pogo77noriyasu-bit/claude-code-book-template">GitHub リポジトリ</a>
+    </footer>
+  </main>
+</body>
+</html>
