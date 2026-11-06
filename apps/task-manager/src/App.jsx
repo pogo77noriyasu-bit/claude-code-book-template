@@ -144,6 +144,7 @@ export default function App() {
   }
 
   const remaining = tasks.filter((t) => !t.done).length;
+  const doneCount = tasks.length - remaining; // 完了した件数
 
   return (
     <main className="app">
@@ -224,7 +225,7 @@ export default function App() {
             )}
           </ul>
           <p className="summary">
-            残り {remaining} 件 / 全 {tasks.length} 件
+            残り {remaining} 件 / 完了 {doneCount} 件 / 全 {tasks.length} 件
           </p>
         </>
       )}
