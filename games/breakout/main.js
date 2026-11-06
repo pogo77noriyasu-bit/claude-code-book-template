@@ -547,7 +547,8 @@ function draw() {
   // ボール
   if (state !== 'gameover') {
     const piercing = effects.pierce > 0;
-    ctx.fillStyle = piercing ? '#ff924c' : '#ff2a2a';
+    // 通常時は緑、貫通中はオレンジ
+    ctx.fillStyle = piercing ? '#ff924c' : '#3cff6e';
     if (piercing) { ctx.shadowColor = '#ffca3a'; ctx.shadowBlur = 12; }
     for (const b of balls) {
       ctx.beginPath();
