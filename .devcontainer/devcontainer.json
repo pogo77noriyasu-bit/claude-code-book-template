@@ -9,7 +9,8 @@
   "postCreateCommand": ".devcontainer/post_create.sh",
   "postStartCommand": "sudo service mariadb start",
   "mounts": [
-    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume",
+    "source=mariadb-data,target=/var/lib/mysql,type=volume"
   ],
   "forwardPorts": [5173],
   "portsAttributes": {

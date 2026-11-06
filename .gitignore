@@ -1,2 +1,5 @@
 # Playwright MCP が動作確認時に自動生成するスクリーンショットとログ
 .playwright-mcp/
+
+# MariaDB のバックアップ(mysqldump の出力)。ローカル専用で Git には含めない
+.db-backup/
