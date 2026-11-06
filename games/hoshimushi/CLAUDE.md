@@ -26,16 +26,18 @@
 
 設計上の要点:
 
-- **状態遷移**: `state` = `'ready' | 'playing' | 'paused' | 'gameover'`。プレイ中はさらに `game.phase` = `'intro' | 'enter' | 'battle' | 'clear' | 'result'` で進行する。
+- **状態遷移**: `state` = `'ready' | 'playing' | 'paused' | 'entry' | 'gameover'`(`'entry'` はランキングの名前入力)。プレイ中はさらに `game.phase` = `'intro' | 'enter' | 'battle' | 'clear' | 'result'` で進行する。
 - **時間**: デルタタイム(秒)ベース。`loop()` で `dt` を最大 0.05 秒に制限。
-- **敵の動き**: ルートは3次ベジェ曲線を `buildPath()` で点列にし、`followPath()` でたどる。敵の `state` は `'enter'`(入場)→`'home'`(定位置へ戻る)→`'formation'`(編隊)→`'dive'` / `'beamDive'` / `'beam'`(攻撃)。
+- **敵の動き**: ルートは3次ベジェ曲線を `buildPath()` で点列にし、`followPath()` でたどる。敵の `state` は `'enter'`(入場)→`'home'`(定位置へ戻る)→`'formation'`(編隊)→`'dive'` / `'beamDive'` / `'beam'`(攻撃)。`'morph'` は3機編隊へ変身中。
 - **編隊**: 40機(女王4・ヒラリ16・ブンブン20)。定位置は `slotPos(row, col)`。入場中は左右に揺れ、全員そろうと伸び縮み(`breathK` で切り替え)。行 `-1` は敵にされた自機(traitor)用。
 - **捕獲と合体**: 女王がビームで自機を捕まえると `captive = true` で女王の上に付く。突撃中の女王を倒すと `rescue` が降りてきてダブル(`player.dual`)になる。編隊中に倒すと traitor になる。捕まった自機を撃つと 1000 点で救出失敗。
-- **チャレンジステージ**: `stage % 4 === 3`(3, 7, 11 …)。8機×5組が `CH_PATTERNS` のルートを飛ぶだけで攻撃しない。撃墜数×100、全機撃墜で 10000 点。
+- **3機編隊への変身**: 4面以降、`launchAttack()` がときどき編隊中のブンブン/ヒラリを `'morph'` 状態にする(同時に1組まで、`game.morphGroup`)。0.8 秒点滅したあと `finishMorph()` で元の1機を消し、`MORPHS` の種類(4〜6面ホタル・8〜10面カマキリ・12〜14面セミ、以降くり返し)の3機を突撃させる。この3機は編隊に戻らず画面外へ逃げる。3機とも倒すと `bonus` 点。
+- **チャレンジステージ**: `stage % 4 === 3`(3, 7, 11 …)。8機×5組が `CH_PATTERNS` のルートを飛ぶだけで攻撃しない。主役の敵は回ごとに `CH_TYPES` の順(ブンブン→ヒラリ→ホタル→トンボ→カマキリ→プロペラ→セミ)で変わり、2組目には女王が混ざる。トンボとプロペラはチャレンジステージ専用で、プロペラは向きに関係なく回転して描く。撃墜数×100、全機撃墜で 10000 点。
+- **ランキング**: 上位5位を `[{ name, score }]` で保存。ゲームオーバー時に5位より高ければ `state = 'entry'` になり、3文字の名前を入力する(←→で選ぶ・英字キーで直接・スペース/Enter で決定・BackSpace で戻る、タッチは左右で選ぶ・真ん中で決定)。誤操作防止のため、ゲームオーバーから 0.8 秒間とキーリピートは無視する。HI-SCORE はランキング1位の得点。
 - **残機**: `game.lives` は画面外の残機数。0 の状態で失うとゲームオーバー。20000 点で 1UP、以降 70000 点ごと。
 
 ## 実装ルール
 
-- スコアは `localStorage` に保存すること。キーは `hoshimushi.highScore`、効果音設定は `hoshimushi.sound`(`'on'`/`'off'`)。読み書きは必ず `loadStorage()` / `saveStorage()` を通す。
+- スコアは `localStorage` に保存すること。ランキングのキーは `hoshimushi.ranking`(JSON)、効果音設定は `hoshimushi.sound`(`'on'`/`'off'`)。読み書きは必ず `loadStorage()` / `saveStorage()` を通す。旧版の `hoshimushi.highScore` は、ランキングが未保存のときに引き継ぐためだけに読む。
 - 効果音は Web Audio API で合成し、ON/OFF を切り替えられるようにすること。鳴らすときは必ず `playSound(name)` を使う。
 - ドット絵は `main.js` 冒頭の文字列グリッド(`GRID_*`)で定義し、色違いは `SPRITE_DEFS` の `remap` で作る。

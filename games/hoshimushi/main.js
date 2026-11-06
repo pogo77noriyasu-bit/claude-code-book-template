@@ -23,10 +23,37 @@ const FIRST_EXTEND = 20000;     // 最初の 1UP の得点
 const EVERY_EXTEND = 70000;     // 以降はこの点数ごとに 1UP
 
 // 敵の得点 [編隊にいるとき, 突撃中]
-const POINTS = { bee: [50, 100], moth: [80, 160], queen: [150, 400], traitor: [500, 1000] };
+const POINTS = {
+  bee: [50, 100], moth: [80, 160], queen: [150, 400], traitor: [500, 1000],
+  // 変身した3機編隊の敵と、チャレンジステージ専用の敵
+  firefly: [160, 160], mantis: [160, 160], cicada: [160, 160],
+  dragonfly: [100, 100], propeller: [100, 100],
+};
+
+// 変身(3機編隊)の種類。4〜6面はホタル、8〜10面はカマキリ、12〜14面はセミ、以降くり返し
+// offsets は3機の並び方(縦一列・横一列など)、speedUp は突撃の速さの上乗せ
+const MORPHS = [
+  { type: 'firefly', bonus: 1000, speedUp: 0, offsets: [[0, 0], [0, -26], [0, -52]] },
+  { type: 'mantis', bonus: 2000, speedUp: 20, offsets: [[-28, 0], [0, 0], [28, 0]] },
+  { type: 'cicada', bonus: 3000, speedUp: 90, offsets: [[-34, 8], [0, 0], [34, 8]] },
+];
+
+// チャレンジステージに出る敵の種類(回ごとに順番に変わる)
+const CH_TYPES = ['bee', 'moth', 'firefly', 'dragonfly', 'mantis', 'propeller', 'cicada'];
+
+// ランキングの初期値(上位5位)
+const DEFAULT_RANKING = [
+  { name: 'HSM', score: 20000 },
+  { name: 'MUS', score: 18000 },
+  { name: 'KAN', score: 16000 },
+  { name: 'TAI', score: 14000 },
+  { name: 'BUG', score: 12000 },
+];
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ.!';  // 名前に使える文字
 
 // localStorage のキー
-const KEY_HIGH = 'hoshimushi.highScore';
+const KEY_RANKING = 'hoshimushi.ranking';
+const KEY_HIGH = 'hoshimushi.highScore';  // 旧版のハイスコア(ランキングへの引き継ぎにだけ使う)
 const KEY_SOUND = 'hoshimushi.sound';
 
 // ------------------------------------------------------------
@@ -86,6 +113,71 @@ const GRID_QUEEN = [
   'o..gg.g.gg..o',
   '...g..g..g...',
 ];
+// ホタル(変身・縦一列で突撃)
+const GRID_FIREFLY = [
+  '...c.....c...',
+  '....c...c....',
+  '....rrrrr....',
+  '...rbbbbbr...',
+  '.wwbbbbbbbww.',
+  'wwwbbbbbbbwww',
+  '.w..ggggg..w.',
+  '....ggggg....',
+  '.....ggg.....',
+  '......g......',
+];
+// カマキリ(変身・横一列で突撃)
+const GRID_MANTIS = [
+  '.c.........c.',
+  'cc..ccccc..cc',
+  'c..ckccckc..c',
+  'c...ccccc...c',
+  '.cc..ccc..cc.',
+  '...ccccccc...',
+  '..yy.ccc.yy..',
+  '.yy..ccc..yy.',
+  '.....ccc.....',
+  '.....c.c.....',
+];
+// セミ(変身・高速で突撃)
+const GRID_CICADA = [
+  '.....ooo.....',
+  '....okoko....',
+  'cc..ooooo..cc',
+  'cccwooooowccc',
+  '.ccwwooowwcc.',
+  '..ccwooowcc..',
+  '...cwooowc...',
+  '....w.o.w....',
+];
+// トンボ(チャレンジステージ専用)
+const GRID_DRAGONFLY = [
+  '....rrrrr....',
+  '....rkrkr....',
+  'cccc.rrr.cccc',
+  '.cccc.r.cccc.',
+  'cccc.rrr.cccc',
+  '.ccc..r..ccc.',
+  '......r......',
+  '......y......',
+  '......r......',
+  '......y......',
+  '......r......',
+];
+// プロペラ(チャレンジステージ専用。くるくる回りながら飛ぶ)
+const GRID_PROPELLER = [
+  '.....ppp.....',
+  '.....ppp.....',
+  '......p......',
+  '......w......',
+  'pp...www...pp',
+  'pppwwwrwwwppp',
+  'pp...www...pp',
+  '......w......',
+  '......p......',
+  '.....ppp.....',
+  '.....ppp.....',
+];
 const SPRITE_SCALE = 2;  // ドット1粒の大きさ(px)
 
 // 色違いも含めたスプライトの定義
@@ -97,6 +189,11 @@ const SPRITE_DEFS = {
   queen: { grid: GRID_QUEEN },
   queen2: { grid: GRID_QUEEN, remap: { g: 'p' } },           // 1発当たった女王(紫)
   bee_hit: { grid: GRID_BEE, remap: { y: 'w', b: 'w', r: 'w' } },
+  firefly: { grid: GRID_FIREFLY },
+  mantis: { grid: GRID_MANTIS },
+  cicada: { grid: GRID_CICADA },
+  dragonfly: { grid: GRID_DRAGONFLY },
+  propeller: { grid: GRID_PROPELLER },
 };
 SPRITE_DEFS.traitor = SPRITE_DEFS.captive;  // 敵にされた自機
 
@@ -128,10 +225,14 @@ const WAVES = [
 // ============================================================
 let state = 'ready';            // 'ready' | 'playing' | 'paused' | 'gameover'
 let soundOn = loadStorage(KEY_SOUND, 'on') !== 'off';
+let ranking = loadRanking();    // [{ name, score }] を得点の高い順に5件
+
+// 名前入力の状態
+const entry = { chars: ['A', 'A', 'A'], pos: 0, rank: 0 };
 
 const game = {
   score: 0,
-  hi: Number(loadStorage(KEY_HIGH, '0')) || 0,
+  hi: ranking[0].score,
   lives: 2,           // 残機(画面に出ている自機は含まない)
   stage: 0,
   challenge: false,   // チャレンジステージ中か
@@ -152,6 +253,8 @@ const game = {
   message: '',
   messageT: 0,
   newRecord: false,
+  morphGroup: null,   // 変身中・突撃中の3機編隊
+  lastRank: -1,       // 直前に名前を登録した順位(ランキング表で光らせる)
 };
 
 const player = {
@@ -204,6 +307,28 @@ function saveStorage(key, value) {
   } catch (e) {
     // 保存できなくても続行する
   }
+}
+
+// ランキングを読み込む。壊れていたら初期値に戻す
+function loadRanking() {
+  try {
+    const r = JSON.parse(loadStorage(KEY_RANKING, 'null'));
+    if (Array.isArray(r) && r.length === 5 &&
+        r.every((x) => x && typeof x.name === 'string' && Number.isFinite(x.score))) {
+      return r;
+    }
+  } catch (e) {
+    // 読めなければ初期値を使う
+  }
+  const r = DEFAULT_RANKING.map((x) => ({ ...x }));
+  // 旧版で保存したハイスコアがあれば、ランキングに入れて引き継ぐ
+  const old = Number(loadStorage(KEY_HIGH, '0')) || 0;
+  if (old > r[4].score) {
+    r.push({ name: 'YOU', score: old });
+    r.sort((a, b) => b.score - a.score);
+    r.length = 5;
+  }
+  return r;
 }
 
 // ============================================================
@@ -438,6 +563,7 @@ function launch() {
   Object.assign(game, {
     score: 0, lives: 2, stage: 0, nextExtend: FIRST_EXTEND, overT: 0,
     fired: 0, hits: 0, beamer: null, fireCalm: 0, newRecord: false, messageT: 0,
+    hi: ranking[0].score, morphGroup: null, lastRank: -1,
   });
   Object.assign(player, {
     x: W / 2, y: PLAYER_Y, alive: true, dual: false, invuln: 0,
@@ -460,6 +586,7 @@ function startStage(n) {
   enemies = [];
   eShots = [];
   game.beamer = null;
+  game.morphGroup = null;
   game.queue = [];
   game.enterClock = 0;
   breathK = 0;
@@ -469,13 +596,14 @@ function startStage(n) {
     game.chHits = 0;
     game.chWaves = Array.from({ length: 5 }, () => ({ killed: 0 }));
     const round = Math.floor(n / 4);
-    const types = ['bee', 'moth', 'bee', 'moth', 'bee'];
+    // 回ごとに主役の敵が変わる(ブンブン→ヒラリ→ホタル→トンボ→カマキリ→プロペラ→セミ)
+    const main = CH_TYPES[round % CH_TYPES.length];
     for (let w = 0; w < 5; w++) {
       const pat = CH_PATTERNS[(w + round) % CH_PATTERNS.length];
       for (let j = 0; j < 8; j++) {
         // 2組目には女王が混ざる
-        let type = types[(w + round) % types.length];
-        if (w === 1) type = j % 4 < 2 ? 'queen' : 'moth';
+        let type = main;
+        if (w === 1) type = j % 4 < 2 ? 'queen' : main;
         game.queue.push({
           t: w * 3.4 + Math.floor(j / 2) * 0.22,
           type, wave: w,
@@ -518,11 +646,40 @@ function onPlayerLost() {
 }
 
 function gameOver() {
+  game.overAt = performance.now();
+  playSound('gameover');
+  if (game.score > ranking[4].score) {
+    // 5位以内に入ったら名前入力へ
+    state = 'entry';
+    entry.chars = ['A', 'A', 'A'];
+    entry.pos = 0;
+    entry.rank = ranking.findIndex((r) => game.score > r.score);
+  } else {
+    state = 'gameover';
+  }
+}
+
+// 名前入力: 今の文字を delta だけ進める(端まで行ったら反対側へ回る)
+function changeLetter(delta) {
+  const i = LETTERS.indexOf(entry.chars[entry.pos]);
+  entry.chars[entry.pos] = LETTERS[(i + delta + LETTERS.length) % LETTERS.length];
+}
+
+// 名前入力: 今の文字を決定して次へ。3文字そろったらランキングに登録する
+function confirmLetter() {
+  entry.pos++;
+  if (entry.pos < 3) return;
+  ranking.splice(entry.rank, 0, { name: entry.chars.join(''), score: game.score });
+  ranking.length = 5;
+  saveStorage(KEY_RANKING, JSON.stringify(ranking));
+  game.lastRank = entry.rank;
   state = 'gameover';
   game.overAt = performance.now();
-  if (game.newRecord) saveStorage(KEY_HIGH, game.hi);
-  playSound('gameover');
+  playSound('extend');
 }
+
+// ゲームオーバー直後の操作で、うっかり名前が決まらないようにする
+const entryReady = () => performance.now() - game.overAt > 800;
 
 // ============================================================
 // 入力
@@ -532,9 +689,27 @@ function canStart() {
   return state === 'ready' || (state === 'gameover' && performance.now() - game.overAt > 1000);
 }
 
+// 名前入力中のキー操作。←→↑↓で文字を選び、スペース/Enter で決定、英字キーで直接入力
+function handleEntryKey(e) {
+  const k = e.key;
+  if (e.repeat || !entryReady()) return;  // 押しっぱなしの連打は無視する
+  if (k === 'ArrowRight' || k === 'ArrowUp') changeLetter(1);
+  else if (k === 'ArrowLeft' || k === 'ArrowDown') changeLetter(-1);
+  else if (k === ' ' || k === 'Enter') confirmLetter();
+  else if (k === 'Backspace') entry.pos = Math.max(0, entry.pos - 1);
+  else if (/^[a-zA-Z]$/.test(k)) {
+    entry.chars[entry.pos] = k.toUpperCase();
+    confirmLetter();
+  }
+}
+
 document.addEventListener('keydown', (e) => {
   const k = e.key;
-  if (['ArrowLeft', 'ArrowRight', ' ', 'ArrowUp', 'ArrowDown'].includes(k)) e.preventDefault();
+  if (['ArrowLeft', 'ArrowRight', ' ', 'ArrowUp', 'ArrowDown', 'Backspace'].includes(k)) e.preventDefault();
+  if (state === 'entry') {
+    handleEntryKey(e);
+    return;
+  }
   if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = true;
   if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = true;
   if (k === ' ') keys.fire = true;
@@ -555,6 +730,15 @@ function canvasX(e) {
   return ((e.clientX - r.left) / r.width) * W;
 }
 canvas.addEventListener('pointerdown', (e) => {
+  if (state === 'entry') {
+    // 名前入力: 左1/3をタップで前の文字、右1/3で次の文字、真ん中で決定
+    if (!entryReady()) return;
+    const x = canvasX(e);
+    if (x < W / 3) changeLetter(-1);
+    else if (x > (W * 2) / 3) changeLetter(1);
+    else confirmLetter();
+    return;
+  }
   if (canStart()) { launch(); return; }
   if (state === 'paused') { togglePause(); return; }
   pointer.active = true;
@@ -635,6 +819,40 @@ function startBeamDive(q) {
   game.beamer = q;
 }
 
+// 変身の開始: その場でしばらく点滅してから3機に分かれる
+function startMorph(e) {
+  const kind = MORPHS[Math.floor((game.stage - 4) / 4) % MORPHS.length];
+  e.state = 'morph';
+  e.morphT = 0;
+  e.morphTo = kind.type;
+  // 3機のうち何機倒したか・何機逃げたかを数える入れ物
+  game.morphGroup = { kind, killed: 0, gone: 0 };
+}
+
+// 点滅が終わったら、元の1機を消して3機編隊を突撃させる
+function finishMorph(e) {
+  const group = game.morphGroup;
+  const kind = group.kind;
+  e.dead = true;
+  const base = divePath(e, player.x);
+  for (const [ox, oy] of kind.offsets) {
+    const m = makeEnemy(kind.type, e.row, e.col, e.x + ox, e.y + oy);
+    m.state = 'dive';
+    m.path = base.map((p) => ({ x: p.x + ox, y: p.y + oy }));
+    m.pi = 0;
+    m.speed = 220 + Math.min(game.stage, 15) * 8 + kind.speedUp;
+    m.fireLeft = 1;
+    m.group = group;
+    enemies.push(m);
+  }
+  playSound('queenHit');
+}
+
+// 3機すべての結末(撃墜か逃げた)が決まったら、次の変身を許可する
+function checkMorphDone(group) {
+  if (group.killed + group.gone >= 3 && game.morphGroup === group) game.morphGroup = null;
+}
+
 // ビームを出せる条件: 自機が1機だけで、他に捕まっている自機がいない
 function canBeam() {
   return player.alive && !player.dual && !player.captured && !game.beamer && !rescue &&
@@ -648,6 +866,13 @@ function launchAttack() {
   if (divers >= maxDivers) return;
   const inForm = enemies.filter((e) => !e.dead && e.state === 'formation');
   if (!inForm.length) return;
+
+  // 4面以降は、ときどきザコが3機編隊に変身して突撃してくる(同時に1組まで)
+  const small = inForm.filter((e) => e.type === 'bee' || e.type === 'moth');
+  if (game.stage >= 4 && !game.morphGroup && small.length && Math.random() < 0.2) {
+    startMorph(pick(small));
+    return;
+  }
 
   const queens = inForm.filter((e) => e.type === 'queen');
   if (queens.length && Math.random() < 0.3) {
@@ -747,8 +972,20 @@ function updateEnemies(dt) {
         e.angle = approachAngle(e.angle, 0, dt * 8);
         break;
       }
+      case 'morph': {
+        const s = slotPos(e.row, e.col);
+        e.x = s.x; e.y = s.y;
+        e.morphT += dt;
+        if (e.morphT > 0.8) finishMorph(e);
+        break;
+      }
       case 'dive':
-        if (followPath(e, dt)) {
+        if (followPath(e, dt) && e.group) {
+          // 変身した敵は戻らず、そのまま逃げていく
+          e.dead = true;
+          e.group.gone++;
+          checkMorphDone(e.group);
+        } else if (e.pi >= e.path.length) {
           // 画面下へ抜けたら、上から定位置へ戻る
           e.x = slotPos(e.row, e.col).x;
           e.y = -30;
@@ -809,6 +1046,17 @@ function killEnemy(e) {
       pts = [400, 800, 1600][alive];
     }
     if (pts >= 400) addPopup(e.x, e.y, String(pts));
+    // 変身前に倒されたら、その変身は取りやめ
+    if (e.state === 'morph') game.morphGroup = null;
+    // 3機編隊を全部倒すとボーナス
+    if (e.group) {
+      e.group.killed++;
+      if (e.group.killed === 3) {
+        addScore(e.group.kind.bonus);
+        addPopup(e.x, e.y - 14, String(e.group.kind.bonus));
+      }
+      checkMorphDone(e.group);
+    }
   }
 
   if (e.captive) {
@@ -829,7 +1077,10 @@ function killEnemy(e) {
   }
 
   addScore(pts);
-  const color = { bee: '#ffd23a', moth: '#ff3a3a', queen: '#3adf6a', traitor: '#ff3a3a' }[e.type];
+  const color = {
+    bee: '#ffd23a', moth: '#ff3a3a', queen: '#3adf6a', traitor: '#ff3a3a',
+    firefly: '#3adf6a', mantis: '#3cf0ff', cicada: '#ff9a2a', dragonfly: '#3cf0ff', propeller: '#b45aff',
+  }[e.type];
   explode(e.x, e.y, color);
   playSound('hit');
 }
@@ -1136,7 +1387,14 @@ function drawEnemy(e) {
   let name = e.type;
   if (e.type === 'queen' && e.hp === 1) name = 'queen2';
   if (e.flash > 0) name = 'bee_hit';
-  drawSprite(name, e.x, e.y, e.angle, e.type === 'traitor' ? 1 : flap);
+  // 変身中は元の姿と変身後の姿を交互に見せる
+  if (e.state === 'morph' && Math.floor(e.morphT * 12) % 2) name = e.morphTo;
+  if (e.type === 'propeller') {
+    // プロペラは進む向きに関係なく、くるくる回り続ける
+    drawSprite(name, e.x, e.y, formT * 8);
+  } else {
+    drawSprite(name, e.x, e.y, e.angle, e.type === 'traitor' ? 1 : flap);
+  }
   if (e.captive) {
     // 捕まった自機は女王の上にくっついている
     const a = e.angle;
@@ -1170,6 +1428,47 @@ function drawHud() {
   }
 }
 
+// ランキング表。直前に登録した順位は黄色で点滅させる
+function drawRanking(y0) {
+  text('― ランキング ―', W / 2, y0, { size: 18, ja: true, color: '#3adf6a' });
+  const labels = ['1ST', '2ND', '3RD', '4TH', '5TH'];
+  ranking.forEach((r, i) => {
+    const y = y0 + 38 + i * 30;
+    const mine = i === game.lastRank;
+    if (mine && Math.floor(performance.now() / 300) % 2) return;
+    const color = mine ? '#ffd23a' : i === 0 ? '#3cf0ff' : '#ffffff';
+    text(labels[i], 120, y, { size: 12, color, align: 'left' });
+    text(String(r.score).padStart(6, '0'), 200, y, { size: 12, color, align: 'left' });
+    text(r.name, 320, y, { size: 12, color, align: 'left' });
+  });
+}
+
+// 名前入力の画面
+function drawEntry() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, W, H);
+  text('GAME OVER', W / 2, 120, { size: 20, color: '#ff3a3a' });
+  text('ランキング入り!', W / 2, 180, { size: 24, ja: true, color: '#ffd23a' });
+  text(`${entry.rank + 1}位  ${String(game.score).padStart(6, '0')}`, W / 2, 225, { size: 18, ja: true });
+  text('名前を入れてください', W / 2, 275, { size: 16, ja: true, color: '#a8a8c8' });
+
+  // 3文字。入力中の文字は点滅し、下線を引く
+  for (let i = 0; i < 3; i++) {
+    const x = W / 2 + (i - 1) * 56;
+    const active = i === entry.pos;
+    if (!(active && Math.floor(performance.now() / 250) % 2)) {
+      text(entry.chars[i], x, 345, { size: 32, color: active ? '#3cf0ff' : '#ffffff' });
+    }
+    if (active) {
+      ctx.fillStyle = '#3cf0ff';
+      ctx.fillRect(x - 18, 372, 36, 4);
+    }
+  }
+  text('←→ で文字を選ぶ / 英字キーで直接入力', W / 2, 430, { size: 14, ja: true, color: '#a8a8c8' });
+  text('スペース・Enter で決定 / BackSpace で戻る', W / 2, 455, { size: 14, ja: true, color: '#a8a8c8' });
+  text('タッチ: 左右をタップで選ぶ・真ん中で決定', W / 2, 480, { size: 14, ja: true, color: '#a8a8c8' });
+}
+
 function drawReadyScreen() {
   ctx.save();
   ctx.fillStyle = '#ff3cc8';
@@ -1182,21 +1481,38 @@ function drawReadyScreen() {
   ctx.restore();
   text('HOSHIMUSHI FLEET', W / 2, 200, { size: 10, color: '#3cf0ff' });
 
-  // 得点表
-  text('― スコア表 ―', W / 2, 260, { size: 18, ja: true, color: '#3adf6a' });
-  const rows = [
-    ['bee', 'ブンブン', '50 / 100'],
-    ['moth', 'ヒラリ', '80 / 160'],
-    ['queen', '女王ムシ', '150 / 400〜1600'],
-  ];
-  rows.forEach(([name, label, pts], i) => {
-    const y = 300 + i * 40;
-    drawSprite(name, 110, y);
-    text(label, 140, y, { size: 16, ja: true, align: 'left' });
-    text(pts, 260, y, { size: 9, align: 'left', color: '#ffd23a' });
-  });
-  text('女王ムシのビームで捕まった自機を', W / 2, 430, { size: 15, ja: true, color: '#a8a8c8' });
-  text('突撃中に取り返すと2機合体!', W / 2, 452, { size: 15, ja: true, color: '#a8a8c8' });
+  // 6秒ごとに「スコア表」「3機編隊」「ランキング」を切り替えて見せる
+  const page = Math.floor(performance.now() / 6000) % 3;
+  if (page === 0) {
+    text('― スコア表 ―', W / 2, 260, { size: 18, ja: true, color: '#3adf6a' });
+    const rows = [
+      ['bee', 'ブンブン', '50 / 100'],
+      ['moth', 'ヒラリ', '80 / 160'],
+      ['queen', '女王ムシ', '150 / 400〜1600'],
+    ];
+    rows.forEach(([name, label, pts], i) => {
+      const y = 300 + i * 40;
+      drawSprite(name, 110, y);
+      text(label, 140, y, { size: 16, ja: true, align: 'left' });
+      text(pts, 260, y, { size: 9, align: 'left', color: '#ffd23a' });
+    });
+    text('女王ムシのビームで捕まった自機を', W / 2, 430, { size: 15, ja: true, color: '#a8a8c8' });
+    text('突撃中に取り返すと2機合体!', W / 2, 452, { size: 15, ja: true, color: '#a8a8c8' });
+  } else if (page === 1) {
+    text('― 3機編隊ボーナス ―', W / 2, 260, { size: 18, ja: true, color: '#3adf6a' });
+    const rows = [['firefly', 'ホタル'], ['mantis', 'カマキリ'], ['cicada', 'セミ']];
+    rows.forEach(([name, label], i) => {
+      const y = 300 + i * 40;
+      // 3機並べて描く
+      for (let k = 0; k < 3; k++) drawSprite(name, 80 + k * 26, y);
+      text(label, 170, y, { size: 16, ja: true, align: 'left' });
+      text(String(MORPHS[i].bonus), 290, y, { size: 10, align: 'left', color: '#ffd23a' });
+    });
+    text('4面からザコが変身して突撃してくる', W / 2, 430, { size: 15, ja: true, color: '#a8a8c8' });
+    text('3機とも倒すとボーナス!', W / 2, 452, { size: 15, ja: true, color: '#a8a8c8' });
+  } else {
+    drawRanking(250);
+  }
 
   if (Math.floor(performance.now() / 500) % 2 === 0) {
     text('PUSH SPACE / TAP', W / 2, 520, { size: 14 });
@@ -1230,19 +1546,21 @@ function drawOverlay() {
     text('PAUSE', W / 2, 300, { size: 20 });
     text('P キーで再開', W / 2, 340, { size: 16, ja: true, color: '#a8a8c8' });
   }
+  if (state === 'entry') drawEntry();
   if (state === 'gameover') {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(0, 0, W, H);
-    text('GAME OVER', W / 2, 200, { size: 24, color: '#ff3a3a' });
+    text('GAME OVER', W / 2, 90, { size: 24, color: '#ff3a3a' });
     // 命中率の結果発表
     const ratio = game.fired ? ((game.hits / game.fired) * 100).toFixed(1) : '0.0';
-    text('― 結果 ―', W / 2, 270, { size: 20, ja: true, color: '#ffd23a' });
-    text(`発射数   ${game.fired}`, W / 2, 310, { size: 18, ja: true });
-    text(`命中数   ${game.hits}`, W / 2, 340, { size: 18, ja: true });
-    text(`命中率   ${ratio} %`, W / 2, 370, { size: 18, ja: true });
-    if (game.newRecord) text('NEW RECORD!', W / 2, 420, { size: 14, color: '#3adf6a' });
+    text('― 結果 ―', W / 2, 145, { size: 18, ja: true, color: '#ffd23a' });
+    text(`発射数   ${game.fired}`, W / 2, 180, { size: 16, ja: true });
+    text(`命中数   ${game.hits}`, W / 2, 206, { size: 16, ja: true });
+    text(`命中率   ${ratio} %`, W / 2, 232, { size: 16, ja: true });
+    if (game.newRecord) text('NEW RECORD!', W / 2, 268, { size: 14, color: '#3adf6a' });
+    drawRanking(310);
     if (Math.floor(performance.now() / 500) % 2 === 0) {
-      text('SPACE / TAP でリトライ', W / 2, 480, { size: 18, ja: true });
+      text('SPACE / TAP でリトライ', W / 2, 540, { size: 18, ja: true });
     }
   }
 }
