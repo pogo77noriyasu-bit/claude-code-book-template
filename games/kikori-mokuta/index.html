@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>きこりのモク太</title>
+  <style>
+    /* ページ全体を夕暮れの森っぽい暗い緑にして、キャンバスを中央に置く */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0d1a10;
+      color: #e8f2dc;
+      font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.1em;
+    }
+    /* 内部解像度は 640x480 のまま、画面に収まるよう縮小表示する */
+    canvas {
+      width: min(640px, 100%, calc((100vh - 200px) * 4 / 3));
+      aspect-ratio: 4 / 3;
+      border: 2px solid #35562c;
+      border-radius: 8px;
+      background: #000;
+      touch-action: none;
+    }
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      align-items: center;
+      font-size: 13px;
+      color: #a9c49a;
+    }
+    button {
+      background: #1d3418;
+      color: #e8f2dc;
+      border: 1px solid #4b7a3e;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    /* タッチ操作用のボタン(スマホ向け) */
+    .pad {
+      display: flex;
+      gap: 10px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .pad button {
+      width: 64px;
+      height: 52px;
+      font-size: 16px;
+      touch-action: none;
+    }
+    .pad .axe { width: 96px; background: #4a2a12; border-color: #9a5a2a; }
+    /* マウス主体の画面ではタッチボタンを隠す */
+    @media (hover: hover) and (pointer: fine) {
+      .pad { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <h1>きこりのモク太</h1>
+  <canvas id="game" width="640" height="480"></canvas>
+  <div class="pad" aria-label="タッチ操作">
+    <button type="button" data-key="left">◀</button>
+    <button type="button" data-key="down">かくれる</button>
+    <button type="button" data-key="right">▶</button>
+    <button type="button" data-key="axe" class="axe">オノ</button>
+  </div>
+  <div class="bar">
+    <span>←→ 移動 ・ スペース/Z オノ ・ ↓ 木にかくれる ・ P 一時停止</span>
+    <button id="sound-toggle" type="button">音: ON</button>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
