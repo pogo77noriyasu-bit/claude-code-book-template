@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ほしむし艦隊</title>
+  <!-- ドット文字: 英数字は Press Start 2P、日本語は DotGothic16 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    /* ページ全体を黒い宇宙にして、キャンバスを中央に置く */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #000;
+      color: #dfe6ff;
+      font-family: "DotGothic16", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.1em;
+      color: #ffd23a;
+    }
+    /* 内部解像度は 480x640 のまま、画面に収まるよう縮小表示する */
+    canvas {
+      width: min(480px, 100%, calc((100vh - 140px) * 0.75));
+      aspect-ratio: 3 / 4;
+      border: 2px solid #2a3566;
+      background: #000;
+      touch-action: none;
+      image-rendering: pixelated;
+    }
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      align-items: center;
+      font-size: 13px;
+      color: #8f9bd0;
+    }
+    button {
+      background: #1a2350;
+      color: #dfe6ff;
+      border: 1px solid #3a4890;
+      padding: 4px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    a { color: #3cf0ff; }
+  </style>
+</head>
+<body>
+  <h1>ほしむし艦隊</h1>
+  <canvas id="game" width="480" height="640"></canvas>
+  <div class="bar">
+    <span>←→ / A D で移動 ・ スペースで発射 ・ P で一時停止 ・ タッチ: 押している間 移動+連射</span>
+    <button id="sound-toggle" type="button">音: ON</button>
+    <a href="../../">一覧へ戻る</a>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
