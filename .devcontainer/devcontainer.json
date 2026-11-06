@@ -7,6 +7,10 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "postCreateCommand": ".devcontainer/post_create.sh",
+  "postStartCommand": "sudo service mariadb start",
+  "mounts": [
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
+  ],
   "forwardPorts": [5173],
   "portsAttributes": {
     "5173": {
