@@ -8,6 +8,9 @@
   },
   "postCreateCommand": ".devcontainer/post_create.sh",
   "postStartCommand": "sudo service mariadb start",
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
   "mounts": [
     "source=claude-code-config,target=/home/vscode/.claude,type=volume",
     "source=mariadb-data,target=/var/lib/mysql,type=volume"

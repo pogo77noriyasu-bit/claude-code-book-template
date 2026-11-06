@@ -3,3 +3,6 @@
 
 # MariaDB のバックアップ(mysqldump の出力)。ローカル専用で Git には含めない
 .db-backup/
+
+# Claude Code の個人用設定(プロジェクトごとのローカル設定)。共有しないので Git には含めない
+.claude/settings.local.json
