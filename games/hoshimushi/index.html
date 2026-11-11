@@ -69,6 +69,7 @@
       /* ダブルタップによる拡大を止めて、タップにすぐ反応させる(スクロールはそのままできる) */
       touch-action: manipulation;
     }
+    .tip { color: #ffd23a; }  /* 2機合体のヒントは目立つ色にする */
     a { color: #3cf0ff; }
   </style>
 </head>
@@ -77,6 +78,8 @@
   <canvas id="game" width="480" height="640"></canvas>
   <div class="bar">
     <span>←→ / A D で移動 ・ スペースで発射 ・ P で一時停止 ・ タッチ: 押している間 移動+連射 ・ タイトルで ←→ / ボタンで難易度選択</span>
+    <!-- 2機合体の遊び方。知らないと気づきにくいので、ページにも書いておく -->
+    <span class="tip">2機合体: ボスパンク(緑)のビームにわざと捕まり、捕まえたボスが突撃してきたところを撃ち落とすと、取り返したポリスと合体して2連射になる(編隊にいるボスを倒すとポリスは敵になる)。EASY は合体のチャンスが多め</span>
     <button id="sound-toggle" type="button">音: ON</button>
     <a href="../../">一覧へ戻る</a>
   </div>
