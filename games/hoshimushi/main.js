@@ -862,6 +862,12 @@ const endPointer = () => { pointer.active = false; };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 
+// 長押しで出るメニュー(右クリックメニュー・コピーなど)を、ゲーム画面と操作ボタンの上だけ止める。
+// ページ全体では止めないので、説明文やリンクは今までどおり長押しできる
+for (const el of [canvas, document.getElementById('sound-toggle')]) {
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
 document.getElementById('sound-toggle').addEventListener('click', (e) => {
   setSound(!soundOn);
   e.currentTarget.blur();  // スペースキーでボタンが押されないようにする
