@@ -1,4 +1,4 @@
-# きこりのモク太 設計書
+# きこりのパンク 設計書
 
 `games/kikori-mokuta/index.html`、`main.js`、`SPEC.md` を読んで作成した設計書です。ゲームの「仕様」は `SPEC.md` にあります。この文書は、それを実現するコードの構造をまとめたものです。
 
@@ -59,7 +59,7 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | 設定 | `canvas`、`ctx`、`W`、`H` と、ゲーム定数 |
 | 状態 | `state` などのグローバル変数、`player`、`keys` |
 | 保存 | `loadStorage()`、`saveStorage()`、`addScore()` |
-| 効果音 | `tone()`、`melody()`、`SOUNDS`、`playSound()`、効果音ボタンの処理 |
+| 効果音 | `ensureAudio()`、`tone()`、`melody()`、`getDistortion()`、`powerChord()`、`kick()`、`riff()`、`SOUNDS`、`playSound()`、効果音ボタンの処理 |
 | 初期化・状態遷移 | `resetGame()`、`setupStage()`、`resetActors()`、`launch()`、`togglePause()` |
 | 入力 | `KEYMAP`、各種イベントリスナー、`pressAction()` |
 | 行動(オノ) | `treeInFront()`、`chop()`、`killEnemy()` |
@@ -119,9 +119,9 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 
 1. 画面揺れ `shake` を減らす(`dt * 20`)。`updateParticles(dt)` を呼ぶ。この 2 つは状態を問わず毎フレーム実行される。
 2. `state === 'dying'` なら、`stateTimer` と `player.ghostY` を進め、タイマー切れで次の状態へ移して `return`。
-3. `state === 'clear'` なら、`stateTimer` を減らし、`updateTrees(dt)` だけ呼んで `return`。
+3. `state === 'clear'` なら、`stateTimer` を減らし、`updateTrees(dt)` と見た目用の `updateHair(dt)` だけ呼んで `return`。
 4. `state !== 'playing'` なら `return`(`ready`、`paused`、`gameover` はここで止まる)。
-5. `updatePlayer`、`updateTrees`、`updateEnemies`、`updateBranches`、`updateBirds` を順に呼ぶ。
+5. `updatePlayer`、`updateHair`、`updateTrees`、`updateEnemies`、`updateBranches`、`updateBirds`、`updateItems` を順に呼ぶ。
 6. `enemyTimer`、`birdTimer` を減らし、0 以下になったら `spawnEnemy()`、`spawnBird()` を呼んで次の間隔を設定する。
 7. クリア条件を判定する(7.2 参照)。
 
@@ -150,8 +150,18 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | `SWING_TIME` | 0.16 | オノを振る動作の長さ |
 | `STUN_TIME` | 1.4 | しびれる時間 |
 | `RESPAWN_INVINCIBLE` | 2 | 面開始・復活直後の無敵時間 |
+| `POSE_TIME` | 0.8 | 木を倒したときのキメポーズを見せる時間(見た目だけ) |
 | `MAX_LIVES` | 3 | 初期の残機 |
+| `LIFE_CAP` | 5 | 安全ピンで増やせる残機の上限 |
+| `PINS_FOR_LIFE` | 5 | 残機 +1 に必要な安全ピンの数 |
+| `PIN_CHOP_CHANCE` / `PIN_BOAR_CHANCE` / `PIN_SNAKE_CHANCE` | 0.06 / 1.0 / 0.2 | 安全ピンが出る確率(木にオノを入れたとき / イノシシを倒したとき / ヘビを倒したとき) |
+| `PIN_MAX` / `CAN_MAX` | 2 / 1 | 画面に同時に出る安全ピン / ビール缶の最大数 |
+| `CAN_CHANCE` | 0.35 | 木が倒れ始めたときビール缶が出る確率(その面の最後の木は除く) |
+| `ITEM_LIFE` | 8 | 地面に落ちたアイテムが消えるまでの秒数(最後の 2 秒は点滅) |
 | `SCORE_CHOP` / `SCORE_TREE` / `SCORE_SNAKE` / `SCORE_BOAR` / `SCORE_CRUSH` / `SCORE_STAGE` | 10 / 500 / 100 / 200 / 300 / 1000 | 得点 |
+| `SCORE_CAN` / `SCORE_PIN_FULL` | 500 / 1000 | ビール缶 / 残機が上限のときに安全ピンを集め切ったボーナス |
+| `PIN_SPRITE`、`PIN_PALETTE`、`CAN_SPRITE`、`CAN_PALETTE` | 文字列の配列と色の表 | アイテムのドット絵(8.3 の `drawSprite()` 参照) |
+| `N` | 音名 → 周波数 | ジングルで使う音の高さ |
 | `KEY_HIGH`、`KEY_SOUND` | `'kikoriMokuta.highScore'`、`'kikoriMokuta.sound'` | `localStorage` のキー |
 | `KEYMAP` | 下記 | `KeyboardEvent.code` から `keys` のプロパティ名への対応 |
 | `SOUNDS` | 効果音の関数の表 | `playSound(name)` が参照する |
@@ -168,7 +178,10 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | `score`、`lives`、`stage` | 得点、残機、面数(1 始まり) |
 | `highScore`、`newRecord` | ハイスコア、このゲームで更新したか |
 | `soundOn` | 効果音の ON/OFF |
-| `trees`、`enemies`、`branches`、`birds`、`drops`、`particles`、`popups` | 各オブジェクトの配列 |
+| `trees`、`enemies`、`branches`、`birds`、`drops`、`items`、`particles`、`popups` | 各オブジェクトの配列 |
+| `pins` | 集めた安全ピンの数。面をまたいで持ち越し、ミスしても減らない。`resetGame()` で 0 に戻す |
+| `pinFlash` | HUD のピンの数字を黄色く光らせる残り時間。`update()` の先頭で状態に関係なく減らす |
+| `distortion` | パンク風ジングル用の歪み(`WaveShaperNode`)。最初に使うときに作る |
 | `enemyTimer`、`birdTimer` | 次の敵・鳥の出現までの時間 |
 | `shake` | 画面揺れの強さ |
 | `audioCtx` | Web Audio の `AudioContext`。最初に音を鳴らすときに作る(初期値 `null`) |
@@ -191,6 +204,12 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | `hiding` | 木の陰にかくれているか |
 | `walk` | 歩きアニメーション用の値 |
 | `ghostY` | やられたときに魂が浮かんだ量 |
+| `moving` | このフレームで歩いたか(見た目だけ。`updatePlayer()` が毎フレーム設定) |
+| `pose` | キメポーズの残り時間(見た目だけ) |
+| `hairLean`、`hairVel` | モヒカンのなびき(マイナスで後ろ)と、その速さ(見た目だけ。ばねの計算用) |
+| `droop` | モヒカンのへたり具合。0 でピン、1 でぺったり(見た目だけ) |
+
+`moving` 以下は描画のためだけの値で、操作・当たり判定・得点には使いません。`resetActors()` で `pose`、`droop`、`hairLean`、`hairVel` を 0 に戻します。
 
 ### 4.5 各オブジェクトのデータ構造
 
@@ -223,6 +242,12 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 
 **フン**(`updateBirds()` 内で生成): `{ x, y, vy: 60 }`。当たるか地面に着くと `done: true` が付いて取り除かれる。
 
+**アイテム**(`spawnItem(type, x, y, vy, vx)`): `{ type: 'pin' | 'can', x, y, vx, vy, landed: false, life: ITEM_LIFE, anim }`。
+
+- `y` はアイテムの下端の高さ。地面(`GROUND`)に着くと `landed = true` になり、それ以降は `life` が減る。0 になるか拾われると `done: true` が付いて取り除かれる。
+- `vx` は横の速さ(ビール缶が弧を描いて飛ぶのに使う)。`x` は 20〜620 に制限する。
+- `anim` は揺れ・きらめき用の時間。
+
 **パーティクル**(`burst()`): `{ x, y, vx, vy, life, color }`。
 **得点ポップアップ**(`addScore()`): `{ x, y, text, life: 0.9 }`。
 
@@ -242,13 +267,19 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 
 | 関数 | 役割 |
 | --- | --- |
-| `tone(freq, duration, type, volume, slideTo, delay)` | オシレーターで 1 音鳴らす。`audioCtx` がなければここで作る(`AudioContext` がない環境では何もしない)。 |
+| `ensureAudio()` | `audioCtx` がなければ作る。`AudioContext` がない環境では `false` を返す。 |
+| `tone(freq, duration, type, volume, slideTo, delay)` | オシレーターで 1 音鳴らす。最初に `ensureAudio()` を呼ぶ(使えなければ何もしない)。 |
+| `getDistortion()` | 歪み用の `WaveShaperNode`(`tanh` で強めにつぶす曲線)を最初の 1 回だけ作って返す。出力は `audioCtx.destination` につながっている。 |
+| `powerChord(root, duration, delay, volume, slideTo)` | 根音・5度・オクターブのノコギリ波を歪みに通して鳴らす。`slideTo` を渡すと音程を下げる。 |
+| `kick(delay)` | サイン波の音程を急に下げたキック。 |
+| `noise(duration, volume, delay, cutoff)` | ホワイトノイズを highpass フィルタ(既定 3000 Hz)に通して鳴らす。ビール缶の「プシュッ」に使う。 |
+| `riff(steps, volume)` | `[根音, 長さ, キックするか, 下げ先]` の配列を順に鳴らす。根音が 0 なら休符。`clear` と `over` のジングルに使う。 |
 | `melody(notes, type, volume)` | `[周波数, 長さ]` の配列を順に鳴らす。周波数が 0 なら休符。 |
 | `playSound(name)` | `soundOn` が `false` なら何もしない。`SOUNDS[name]` があれば呼ぶ。 |
 | `updateSoundButton()` | ボタンの文言を「音: ON」「音: OFF」に更新する。 |
 | `toggleSound()` | `soundOn` を反転し、`KEY_SOUND` へ保存して、ボタンの文言を更新する。 |
 
-`SOUNDS` のキーは `start`、`chop`、`fall`、`whiff`、`kill`、`crush`、`stun`、`warn`、`miss`、`clear`、`over` です。
+`SOUNDS` のキーは `start`、`chop`、`fall`、`whiff`、`kill`、`crush`、`stun`、`pin`、`can`、`oneup`、`warn`、`miss`、`clear`、`over` です。`clear` と `over` は `riff()` を使ったオリジナルのパンク風ジングルで、音の高さは定数 `N` に必要な分だけ定義しています。
 
 ### 5.3 初期化・状態遷移
 
@@ -270,7 +301,9 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | --- | --- |
 | `treeInFront()` | `trees.find` で、立っている(`stand`)木のうち、向いている方向への距離が 8 より大きく 42 より小さいものを返す。 |
 | `chop()` | オノを振る処理(7.1 参照)。 |
-| `killEnemy(e, points)` | `e.dead = true` にし、得点とポップアップ、パーティクルを出す。 |
+| `killEnemy(e, points)` | `e.dead = true` にし、得点とポップアップ、パーティクルを出す。種類ごとの確率(`PIN_BOAR_CHANCE` / `PIN_SNAKE_CHANCE`)で安全ピンを落とす。オノでも下敷きでも呼ばれる。 |
+
+`chop()` は木にオノを入れるたび `PIN_CHOP_CHANCE` で葉っぱから安全ピンを落とします。木を倒す一撃では、その木がその面の最後の木でなければ、`CAN_CHANCE` でビール缶を `spawnItem('can', t.x, GROUND - 30, -300, -player.dir * 120)` で出します(プレイヤーの後ろ側へ弧を描いて飛ぶ)。最後の木を除くのは、倒れ切るとすぐ `clear` になって拾えないためです。
 
 ### 5.6 生成
 
@@ -279,6 +312,7 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | `spawnEnemy()` | 生存している敵が上限(`Math.min(4, 2 + Math.floor(stage / 2))`)以上なら何もしない。そうでなければ、確率 `Math.min(0.5, 0.2 + stage * 0.05)` でイノシシ、それ以外でヘビを出す。左右は 50%。イノシシのときは `playSound('warn')`。 |
 | `spawnBranch(tree)` | 枝を作る。x は木とプレイヤーの中間を中心に ±35 のランダム。 |
 | `spawnBird()` | 鳥を作る。y は 50〜100 のランダム。 |
+| `spawnItem(type, x, y, vy, vx)` | アイテムを作る。同じ種類が上限(`PIN_MAX` / `CAN_MAX`)以上なら何もしない。`x` は 20〜620 に制限する。 |
 | `burst(x, y, color, count, speed)` | パーティクルを `count` 個作る。 |
 
 ### 5.7 更新
@@ -286,12 +320,15 @@ CSS で `canvas` の表示幅を `min(640px, 100%, calc((100vh - 200px) * 4 / 3)
 | 関数 | 役割 |
 | --- | --- |
 | `update(dt)` | 3.3 のとおり、状態に応じた更新の入口。 |
-| `updatePlayer(dt)` | タイマー類を減らす。しびれ中は `hiding = false` にして `return`。かくれる判定、移動、画面端への制限を行う。 |
+| `updatePlayer(dt)` | タイマー類(`pose` を含む)を減らす。しびれ中は `hiding = false` にして `return`。かくれる判定、移動(歩いたら `moving = true`)、画面端への制限を行う。 |
+| `updateHair(dt)` | モヒカンの見た目を更新する。歩き・オノ振り・面クリア中に応じた目標の傾きへ、ばねの式で `hairLean` を近づける。しびれ中(面クリア中を除く)は `droop` を 1 へ、それ以外は 0 へ近づける。`playing` では `updatePlayer()` の直後、`clear` では `updateTrees()` の後に呼ぶ。 |
 | `updateTrees(dt)` | 木が倒れる動き、下敷き判定、倒れた後のフェードアウトを行う。 |
 | `touchesPlayer(x, half)` | `Math.abs(x - player.x) < half + PLAYER_HALF`。左右方向だけの判定。 |
 | `updateEnemies(dt)` | 敵の移動・向き変更・プレイヤーとの接触判定。死んだ敵や画面外の敵を配列から外す。 |
 | `updateBranches(dt)` | 枝の落下と接触判定。 |
 | `updateBirds(dt)` | 鳥の移動、フンを落とす判定、フンの落下と接触判定。 |
+| `updateItems(dt)` | アイテムの落下(重力 700 px/秒²、安全ピンは落ちる速さの上限 170)、着地、寿命、拾う判定。拾う条件は「着地しているか下向きに動いている」「かくれていない」「`y > GROUND - 60`」「`touchesPlayer(x, 8)`」。`playing` のときだけ呼ぶ。 |
+| `pickUp(it)` | 缶なら `SCORE_CAN` を加えて `can` の音。安全ピンなら `pins++` と `pinFlash`。`PINS_FOR_LIFE` に達したら `pins = 0` にして、`lives < LIFE_CAP` なら `lives++` と「1UP!」のポップアップ、上限なら `SCORE_PIN_FULL` を加え、`oneup` の音。 |
 | `miss()` | `state` が `playing` のときだけ、`dying` へ移す(`stateTimer = 2`、`shake = 10`、`playSound('miss')`)。 |
 | `updateParticles(dt)` | パーティクルとポップアップの移動、寿命による削除。 |
 
@@ -381,6 +418,7 @@ if (trees.every((t) => t.state !== 'stand') &&
 
 - 敵: `e.x > -60 && e.x < W + 60` の外に出たら削除。
 - 鳥: `b.x > -40 && b.x < W + 40` の外に出たら削除。
+- アイテム: 画面外には出ない(`x` を 20〜620 に制限)。拾われるか、着地後 `ITEM_LIFE` 秒で削除。
 
 ---
 
@@ -398,13 +436,14 @@ if (trees.every((t) => t.state !== 'stand') &&
 2. `drawBackground()`
 3. `player.hiding` のとき、`drawPlayer()`(木より奥に描くため先に呼ぶ)
 4. `drawTree(t)`(全部の木)
-5. `drawEnemy(e)`(全部の敵)
-6. `!player.hiding` のとき、`drawPlayer()`
-7. `drawBranch(b)`、`drawDrop(d)`、`drawBird(b)`
-8. `drawParticles()`(パーティクルと得点ポップアップ)
-9. `ctx.restore()`(ここまでが画面揺れの対象)
-10. `drawHud()`(画面揺れの対象外)
-11. `state` に応じて `drawCenterText()` を呼ぶ(`ready`、`paused`、`clear`、`gameover`)
+5. `drawItem(it)`(全部のアイテム。プレイヤーと敵より奥)
+6. `drawEnemy(e)`(全部の敵)
+7. `!player.hiding` のとき、`drawPlayer()`
+8. `drawBranch(b)`、`drawDrop(d)`、`drawBird(b)`
+9. `drawParticles()`(パーティクルと得点ポップアップ)
+10. `ctx.restore()`(ここまでが画面揺れの対象)
+11. `drawHud()`(画面揺れの対象外)
+12. `state` に応じて `drawCenterText()` を呼ぶ(`ready`、`paused`、`clear`、`gameover`)
 
 ### 8.3 各描画関数
 
@@ -413,11 +452,21 @@ if (trees.every((t) => t.state !== 'stand') &&
 | `drawBackground()` | 空のグラデーション、山、奥の森のシルエット、地面。すべて固定の図形で、時間では変化しない。 |
 | `drawTree(t)` | `gone` なら `drawStump()` だけ。それ以外は `ctx.translate` と `ctx.rotate(t.angle * t.fallDir)` で根元を支点に回転して、幹と葉を描く。`down` のときは `t.fade` で透明度を変える。`stand` のときは切り込みを描き、それ以外は切り株を描く。 |
 | `drawStump(x)` | 切り株。 |
-| `drawPlayer()` | 無敵中の点滅(`playing` のときだけ)、やられ姿と魂(`dying` / `gameover`)、通常の姿(向きは `ctx.scale(player.dir, 1)` で反転)、オノの振り、しびれ中の星。 |
-| `drawEnemy(e)` | 予告中は「!」を点滅させて `return`。それ以外はヘビまたはイノシシを描く。 |
+| `drawPlayer()` | 無敵中の点滅(`playing` のときだけ)、やられ姿と魂(`dying` / `gameover`)、通常の姿(向きは `ctx.scale(player.dir, 1)` で反転)、オノの振り、しびれ中の星。通常の姿は奥のブーツ → 手前のブーツ → 鋲ジャン → (キメポーズの腕)→ 頭 → オノ → モヒカンの順に描く。反転を戻したあと、面クリア中は「OI!」の吹き出し、しびれ中(面クリア中を除く)は星を描く。モヒカンを最後に描くのは、担いだオノの刃に隠れないようにするため。しびれの星は `GROUND - 80` 付近で、モヒカンの先(`GROUND - 68` 付近)と重ならない。 |
+| `drawBoot(ox, color)` | 20 ホール相当の黒い編み上げブーツ 1 本。`ox` は足の左端、`color` は筒の色(奥の足は暗め)。ハトメ・ジグザグのひも、黄色いステッチ(靴底まわりとかかと)、黄色いプルタブ。 |
+| `drawStudJacket()` | 黒い鋲ジャン。前の合わせ・背中側の縁・背中の面・肩に鋲を打ち、すそのベルトに黄色いステッチ。0.9 秒ごとに鋲を 1 つ 0.2 秒だけ十字に光らせる。光る鋲は `performance.now()` から決める(乱数を使わないので、描くたびに場所が変わってちらつかない)。 |
+| `inClear()` | 面クリア中か(`clear` から一時停止している場合も含む)。 |
+| `showPose()` | キメポーズを見せるか。オノを振っている間は出さない。面クリア中は常に出す。それ以外は `pose > 0` かつしびれていないとき。 |
+| `drawRaisedFist()` | 背中側の腕(袖に鋲 1 つ)で拳を突き上げる。最初の 0.1 秒で腕を振り上げる。右向きの座標で描く。 |
+| `drawOiBubble(px)` | 面クリア中の「OI!」の吹き出し。文字を鏡文字にしないため、`ctx.scale` で反転していない座標で描く。頭の前上に出し、画面の端ではみ出さないよう x を寄せる。 |
+| `drawPunkHead(cx, cy)` | 顔、剃り上げた横の部分、耳、ひげ、目(モヒカンは描かない)。 |
+| `drawMohawk(cx, cy, r, s, lean, droop)` | 赤いモヒカン。頭の中心 `(cx, cy)`、頭の半径 `r`、大きさの倍率 `s`。`lean` はとげの先の横ずれ(高いとげほど大きくずれる)、`droop` はへたり具合で、立ったとげの先とへたったとげの先の間を補間する。濃い赤の縁取りとハイライト付き(`droop > 0.5` のときはハイライトなし)。プレイヤーと残機アイコンで共用する(残機アイコンは `lean`・`droop` を省略)。 |
+| `drawEnemy(e)` | 予告中は「!」を点滅させて `return`。それ以外はヘビまたはイノシシを描く。イノシシの頭には `drawMohawk(18, -19 - bob, 6, 0.75, lean)` で小さな赤いモヒカンを付ける(`lean` は -4 を中心に `e.anim` で揺らす)。 |
+| `drawSprite(sprite, palette, x, y, px)` | 文字列の配列で表したドット絵を、`(x, y)` を左上に 1 マス `px` ピクセルで描く。`'.'` と `palette` にない文字は透明。にじまないよう `x`、`y` を整数に丸める。 |
+| `drawItem(it)` | アイテム。着地後の残り 2 秒は点滅(描かないフレームを作る)。缶は 1 マス 2px で影付き。安全ピンは 1 マス 2px で、落ちている間は左右に揺れ、0.8 秒ごとに十字に光る。 |
 | `drawBranch(b)`、`drawBird(b)`、`drawDrop(d)` | それぞれ枝(予告中は影を描く)、鳥、フン。 |
 | `drawParticles()` | パーティクルと得点ポップアップ。 |
-| `drawHud()` | 画面上部の帯と、`SCORE`、`HI`、`STAGE`、`木 n`、残機の帽子アイコン。 |
+| `drawHud()` | 画面上部の帯と、`SCORE`、安全ピンのアイコン(`drawSprite()` を 1 マス 1.4px で使う)と「`pins`/`PINS_FOR_LIFE`」(`pinFlash` 中は黄色)、`HI`、`STAGE`、`木 n`、残機の赤いモヒカンの頭のアイコン(`drawMohawk()` を倍率 0.8 で使う)。残機が 4 以上ならアイコン 1 つと「×n」。 |
 | `drawCenterText(title, sub, hint)` | 画面中央の半透明の帯とメッセージ。`hint` は `Math.floor(performance.now() / 500) % 2 === 0` のときだけ描く(0.5 秒ごとの点滅)。 |
 
 ### 8.4 状態ごとの更新と描画の違い
@@ -450,8 +499,9 @@ if (trees.every((t) => t.state !== 'stand') &&
 | 4.1 面の開始 | 木の配置、初期化 | `setupStage()`、`resetActors()` |
 | 4.2 / 4.3 クリア条件・流れ | 全部の木が倒れ切る → 2.6 秒 → 次の面 | `update()` の `clear` の処理と末尾の判定 |
 | 4.4 難易度 | 面数による変化 | `spawnEnemy()`、`spawnBird()`、`chop()` の `branchChance`、`update()` の出現間隔 |
+| 5.8 アイテム | 安全ピン、ビール缶 | `spawnItem()`、`updateItems()`、`pickUp()`、`drawItem()`、`chop()`、`killEnemy()` |
 | 5 敵の動作 | ヘビ、イノシシ、枝、鳥とフン、下敷き | `spawnEnemy()`、`updateEnemies()`、`spawnBranch()`、`updateBranches()`、`spawnBird()`、`updateBirds()`、`updateTrees()` |
-| 6 得点・残機 | 得点、ハイスコア、残機、ゲームオーバー | `SCORE_*`、`addScore()`、`lives`、`update()` の `dying` の処理 |
+| 6 得点・残機 | 得点、ハイスコア、残機、ゲームオーバー | `SCORE_*`、`addScore()`、`lives`、`LIFE_CAP`、`pickUp()`、`update()` の `dying` の処理 |
 | 7.1 / 7.2 HUD・中央メッセージ | 表示内容 | `drawHud()`、`drawCenterText()`、`draw()` 末尾 |
 | 7.3 / 7.4 背景・キャラ描画 | 見た目 | `drawBackground()` ほか `draw*()` |
 | 7.5 効果音 | 効果音の一覧 | `SOUNDS`、`playSound()` |
@@ -496,6 +546,13 @@ if (trees.every((t) => t.state !== 'stand') &&
 - `miss()` は `state !== 'playing'` のとき何もしません。同じフレームで複数の危険物に当たっても、`dying` は 1 回だけです。
 - 危険物には予告を付けるのが、このゲームの方針です(`CLAUDE.md`)。
 
+### 10.3.1 アイテムを追加するとき
+
+- `items` 配列に `type` を足し、`spawnItem()` の上限、`pickUp()` の効果、`drawItem()` の見た目を追加すること。ドット絵は `drawSprite()` 用の文字列の配列と色の表で作ると、既存のものとそろいます。
+- 木から出すアイテムは、その面の最後の木から出すと拾えません(倒れ切るとすぐ `clear` になり、`update()` がアイテムを更新しないため)。缶と同じように、最後の木を除くこと。
+- 跳ね上がる出し方をするなら、上昇中は拾えない現在の条件(`it.landed || it.vy >= 0`)を保つこと。外すと、出た瞬間にその場で拾えてしまいます。
+- 残機は `LIFE_CAP` を超えないこと。HUD は残機が 4 以上だと「×n」表示に切り替わります。
+
 ### 10.4 難易度・バランス
 
 - 面数による値の式は `spawnEnemy()`、`spawnBird()`、`chop()`、`update()` に分散しています。1 か所にまとまっていないので、変更するときは `SPEC.md` 4.4 の表も合わせて直すこと。
@@ -514,6 +571,8 @@ if (trees.every((t) => t.state !== 'stand') &&
 - 内部の座標系は 640×480 の固定です(`W`、`H`)。キャンバスのサイズを変えると、背景の図形(`drawBackground()` の座標)、HUD、`setupStage()` の木の配置、敵・鳥の出現位置が固定値を使っている箇所があるため、広く修正が必要です。
 - `draw()` は `clearRect` を使わず、背景で全面を上書きしています。背景が半透明になるような変更をするときは注意すること。
 - 描画中の `ctx.globalAlpha` は `drawTree()` や `drawParticles()` で変更されます。`ctx.save()` / `ctx.restore()` で戻している箇所と、末尾で `globalAlpha = 1` に戻している箇所があります。新しい描画を足すときは、値が残らないようにすること。
+- モク太の部品(`drawBoot()`、`drawStudJacket()`、`drawPunkHead()`、`drawMohawk()`)は右向きの座標で描き、反転は `drawPlayer()` の `ctx.scale(player.dir, 1)` に任せています。文字や左右で意味の変わる模様を足すと、左向きのときに鏡文字になるので注意すること。鋲のように向きを問わない飾りは、前と背中の両方に置くと反転しても自然に見えます。
+- `drawMohawk()` は `lineJoin` を `'round'` に変えたまま戻しません(他の描画は `lineJoin` を使っていないため影響なし)。
 
 ### 10.7 保存・効果音
 
