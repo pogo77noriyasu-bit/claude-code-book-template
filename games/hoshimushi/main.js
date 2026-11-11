@@ -26,18 +26,26 @@ const BEAM_LEN = 250;           // ビームの長さ
 //   fireChance: 突撃した敵が弾を持つ確率、maxFire: 1回の突撃で撃つ弾の最大数
 //   fireRate: 弾を撃つ頻度、shotSpeed: 敵の弾の速さ
 //   lives: 開始時の控えの残機(画面に出ている自機は含まない。EASY は合計5機)
+//   以下は2機合体を体験しやすくするための調整(EASY だけ。0 / false なら元の動きのまま):
+//   beamChance: 突撃のたびに、まずこの確率でボスパンクのビーム突撃を選ぶ
+//   captiveDive: 捕まったポリスを連れたボスが編隊にいるとき、この確率で優先して突撃させる
+//                (同時突撃数の上限で待たされないよう、上限を超えても出す)
+//   dualHints: 捕まったときと、取り返すチャンスのときに画面にヒントを出す
 const DIFFICULTIES = {
   easy: {
-    label: 'EASY', color: '#3adf6a', desc: '敵がゆっくり・弾が少ない・残機5',
+    label: 'EASY', color: '#3adf6a', desc: '敵がゆっくり・弾が少ない・残機5・合体しやすい',
     speed: 0.8, attackInterval: 1.5, maxDivers: -1, fireChance: 0.6, maxFire: 1, fireRate: 0.6, shotSpeed: 0.85, lives: 4,
+    beamChance: 0.25, captiveDive: 0.8, dualHints: true,
   },
   normal: {
     label: 'NORMAL', color: '#3cf0ff', desc: 'ふつうのバランス・残機3',
     speed: 1, attackInterval: 1, maxDivers: 0, fireChance: 1, maxFire: 2, fireRate: 1, shotSpeed: 1, lives: 2,
+    beamChance: 0, captiveDive: 0, dualHints: false,
   },
   hard: {
     label: 'HARD', color: '#ff3a3a', desc: '敵が速い・突撃も弾も多い・残機3',
     speed: 1.15, attackInterval: 0.75, maxDivers: 1, fireChance: 1.3, maxFire: 2, fireRate: 1.3, shotSpeed: 1.1, lives: 2,
+    beamChance: 0, captiveDive: 0, dualHints: false,
   },
 };
 const DIFF_ORDER = ['easy', 'normal', 'hard'];
@@ -979,6 +987,7 @@ function canBeam() {
 
 function launchAttack() {
   if (!player.alive) return;  // 自機がいない間は新しく突撃しない
+  if (tryDualAssist()) return;  // EASY だけ: 2機合体のチャンスを作る
   const divers = enemies.filter(isAttacking).length;
   const maxDivers = clamp(Math.min(2 + Math.floor(game.stage / 2), 6) + game.diff.maxDivers, 1, 7);
   if (divers >= maxDivers) return;
@@ -1001,6 +1010,32 @@ function launchAttack() {
     const others = inForm.filter((e) => e.type !== 'queen');
     startDive(others.length ? pick(others) : pick(inForm));
   }
+}
+
+// EASY だけの、2機合体を体験しやすくする突撃。突撃を出したら true を返す。
+// NORMAL・HARD は captiveDive も beamChance も 0 なので、ここでは何もしない(乱数も使わない)
+function tryDualAssist() {
+  const d = game.diff;
+  // 捕まったポリスを連れたボスが編隊にいれば、優先して突撃させる(突撃中に倒すと救出できる)
+  if (d.captiveDive > 0 && !rescue) {
+    const q = enemies.find((e) => !e.dead && e.captive && e.state === 'formation');
+    if (q && Math.random() < d.captiveDive) {
+      startQueenDive(q);
+      if (d.dualHints) showMessage('今だ! ボスを撃て!', 2.5);
+      return true;
+    }
+  }
+  // ビーム突撃を選びやすくする。ほかの敵の突撃が多すぎるときは出さない
+  if (d.beamChance > 0 && canBeam()) {
+    const maxDivers = clamp(Math.min(2 + Math.floor(game.stage / 2), 6) + d.maxDivers, 1, 7);
+    if (enemies.filter(isAttacking).length >= maxDivers) return false;
+    const queens = enemies.filter((e) => !e.dead && e.type === 'queen' && e.state === 'formation' && !e.captive);
+    if (queens.length && Math.random() < d.beamChance) {
+      startBeamDive(pick(queens));
+      return true;
+    }
+  }
+  return false;
 }
 
 function fireEnemyShot(e) {
@@ -1042,7 +1077,8 @@ function updateBeam(e, dt) {
       player.y = PLAYER_Y;
       player.spin = 0;
       e.beamT = 3.2;  // ビームを縮め始める
-      showMessage('ポリスが捕まった!');
+      // EASY では、次に何をすればよいかを教える
+      showMessage(game.diff.dualHints ? 'ボスの突撃中に取り返せ!' : 'ポリスが捕まった!', game.diff.dualHints ? 3 : 2);
       onPlayerLost();
     }
   } else if (!player.captured && e.beamT > 0.8 && e.beamT < 3.2 && player.alive &&
