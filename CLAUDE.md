@@ -24,6 +24,6 @@
 - `games/breakout/` — ブラウザで遊ぶブロック崩しゲーム(HTML + バニラ JavaScript)
 - `games/meteor-dodge/` — 隕石をよけて星を集める避けゲー「流星よけ」(HTML + バニラ JavaScript)
 - `games/hori-pon/` — 土を掘り進み、モヒカンパンクが怒った女子をポンプでふくらませたりビールで潰したりする穴掘りアクション「ほりポン」(HTML + バニラ JavaScript)
-- `games/hoshimushi/` — 編隊を組んで突撃してくる虫型の敵を撃ち落とす固定画面シューティング「ほしむし艦隊」(HTML + バニラ JavaScript)
-- `games/kikori-mokuta/` — ヘビやイノシシ、落ちてくる枝をよけながら木を切り倒す木こりアクション「きこりのモク太」(HTML + バニラ JavaScript)
+- `games/hoshimushi/` — 編隊を組んで突撃してくるモヒカンパンクスを POLICEマンが撃ち落とす固定画面シューティング「ポリス vs パンクス」(旧名: ほしむし艦隊。HTML + バニラ JavaScript)
+- `games/kikori-mokuta/` — パンクな木こりのモク太が、ヘビやイノシシ、落ちてくる枝をよけながら木を切り倒す木こりアクション「きこりのパンク」(HTML + バニラ JavaScript)
 - `apps/task-manager/` — タスクの追加・編集・削除・完了マークができるタスク管理アプリ(React + Vite)

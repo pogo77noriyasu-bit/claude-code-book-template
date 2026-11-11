@@ -17,8 +17,35 @@ const DUAL_GAP = 13;            // ダブル時、中心から各機までの距
 const SHOT_SPEED = 600;         // 自機の弾の速さ
 const SHOT_COOLDOWN = 0.16;     // 連射の間隔(秒)
 const ENEMY_SHOT_SPEED = 230;   // 敵の弾の速さ
-const BEAM_Y = 330;             // 女王ムシがビームを出す高さ
+const BEAM_Y = 330;             // ボスパンク(女王)がビームを出す高さ
 const BEAM_LEN = 250;           // ビームの長さ
+// 難易度ごとの倍率。NORMAL はすべて 1(元のゲームバランスのまま)
+//   speed: 敵の移動速度(入場・突撃・定位置へ戻る動き・チャレンジステージのすべて)
+//   attackInterval: 突撃の間隔(大きいほど間があく)
+//   maxDivers: 同時に突撃できる数の上限に足す数(結果は 1〜7 に収める)
+//   fireChance: 突撃した敵が弾を持つ確率、maxFire: 1回の突撃で撃つ弾の最大数
+//   fireRate: 弾を撃つ頻度、shotSpeed: 敵の弾の速さ
+//   lives: 開始時の控えの残機(画面に出ている自機は含まない。EASY は合計5機)
+const DIFFICULTIES = {
+  easy: {
+    label: 'EASY', color: '#3adf6a', desc: '敵がゆっくり・弾が少ない・残機5',
+    speed: 0.8, attackInterval: 1.5, maxDivers: -1, fireChance: 0.6, maxFire: 1, fireRate: 0.6, shotSpeed: 0.85, lives: 4,
+  },
+  normal: {
+    label: 'NORMAL', color: '#3cf0ff', desc: 'ふつうのバランス・残機3',
+    speed: 1, attackInterval: 1, maxDivers: 0, fireChance: 1, maxFire: 2, fireRate: 1, shotSpeed: 1, lives: 2,
+  },
+  hard: {
+    label: 'HARD', color: '#ff3a3a', desc: '敵が速い・突撃も弾も多い・残機3',
+    speed: 1.15, attackInterval: 0.75, maxDivers: 1, fireChance: 1.3, maxFire: 2, fireRate: 1.3, shotSpeed: 1.1, lives: 2,
+  },
+};
+const DIFF_ORDER = ['easy', 'normal', 'hard'];
+// 難易度ボタン(タイトル画面・ゲームオーバー画面)の中心の x と大きさ
+const DIFF_BTN_W = 116;
+const DIFF_BTN_H = 30;
+const diffBtnX = (i) => W / 2 + (i - 1) * 136;
+
 const FIRST_EXTEND = 20000;     // 最初の 1UP の得点
 const EVERY_EXTEND = 70000;     // 以降はこの点数ごとに 1UP
 
@@ -52,143 +79,175 @@ const DEFAULT_RANKING = [
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ.!';  // 名前に使える文字
 
 // localStorage のキー
-const KEY_RANKING = 'hoshimushi.ranking';
+const KEY_RANKING = 'hoshimushi.ranking';  // NORMAL のランキング(EASY / HARD は後ろに .easy / .hard を付ける)
+const KEY_DIFFICULTY = 'hoshimushi.difficulty';  // 最後に選んだ難易度('easy' | 'normal' | 'hard')
 const KEY_HIGH = 'hoshimushi.highScore';  // 旧版のハイスコア(ランキングへの引き継ぎにだけ使う)
 const KEY_SOUND = 'hoshimushi.sound';
 
 // ------------------------------------------------------------
 // ドット絵。1文字が1ドットで、'.' は透明。文字は PALETTE の色になる
+// 背景が黒なので、黒(k)は目やサングラスなど、色のある部分の内側だけに使う
 // ------------------------------------------------------------
 const PALETTE = {
   w: '#f4f4f4', r: '#ff3a3a', b: '#3a7bff', y: '#ffd23a',
   g: '#3adf6a', p: '#b45aff', c: '#3cf0ff', o: '#ff9a2a', k: '#101018',
+  s: '#f2c79a',  // 肌
+  e: '#5a5a6e',  // 革ジャン・ブーツ(黒い背景でも見えるよう、少し明るい灰色)
+  v: '#d0d4de',  // 鋲・バッジ(銀)
+  m: '#ff5ac8',  // ピンク(モヒカン)
+  n: '#2a44b0',  // 警察官の制服(紺。黒い背景でも見える明るさ)
+  N: '#5a78e8',  // 制服の肩章(明るい紺)
 };
+
+// 自機: POLICEマン(紺の制服・警官帽・サングラス)。上を向いて弾を撃つ
 const GRID_PLAYER = [
-  '......w......',
-  '......w......',
-  '.....www.....',
-  '.....wrw.....',
-  '..r..www..r..',
-  '..r.wwwww.r..',
-  '..wwwbwbwww..',
-  '.wwwwwwwwwww.',
-  'ww.wwwwwww.ww',
-  'w..rw.w.wr..w',
-  'w....w.w....w',
+  '....nnnnn....',
+  '...nnnvnnn...',
+  '..nnnnnnnnn..',
+  '...kkkkkkk...',
+  '....sssss....',
+  '....kkskk....',
+  '....sssss....',
+  '.NnnnnnnnnnN.',
+  'nn.nnnvnnn.nn',
+  's..nnnnnnn..s',
+  '...nkkykkn...',
+  '...nn...nn...',
+  '...ee...ee...',
 ];
-// ブンブン(ハチ型のザコ)
+
+// ---- 敵: 80年代ハードコアパンク風のモヒカンパンクス ----
+// 小さくても目立つよう、モヒカンは頭の上に3〜4ドット突き出させ、両横は剃り上げた肌色にする。
+// 体は灰色の革ジャンで地味にして、種類ごとに色を変えたモヒカンを目立たせる。
+
+// レッドパンク(ザコ。両腕を上げてポゴダンス)
 const GRID_BEE = [
-  '..b.......b..',
-  '...b.....b...',
-  '....yyyyy....',
-  '...ykyyyky...',
-  '.bbyyyyyyybb.',
-  'bbb.yrrry.bbb',
-  'bb..yyyyy..bb',
-  'b...yrrry...b',
-  '.....yyy.....',
-  '......y......',
-];
-// ヒラリ(羽の大きいガ型)
-const GRID_MOTH = [
-  '...c.....c...',
-  '....c...c....',
-  '.ww.rrrrr.ww.',
-  'wwwwrkrkrwwww',
-  'wwwrrrrrrrwww',
-  '.wwwrrrrrwww.',
-  '..w.rwwwr.w..',
-  '....rrrrr....',
+  '......r......',
   '.....rrr.....',
+  '.....rrr.....',
+  '.....rrr.....',
+  '....srrrs....',
+  '.s..sksks..s.',
+  '.e...sss...e.',
+  '.eeeeeeeeeee.',
+  '....eveve....',
+  '....eeeee....',
+  '....e...e....',
+  '...ee...ee...',
 ];
-// 女王ムシ(2発で倒れる。捕獲ビームを出す)
+// ブルーパンク(ザコ。鋲付きの肩パッドで横に広い)
+const GRID_MOTH = [
+  '......b......',
+  '.....bbb.....',
+  '.....bbb.....',
+  '....sbbbs....',
+  '....sksks....',
+  '.....sss.....',
+  'vevveeeeevvev',
+  'eee.eeeee.eee',
+  's...eeeee...s',
+  '....ee.ee....',
+  '...ee...ee...',
+];
+// ボスパンク(2発で倒れる。捕獲ビームを出す。特大の緑モヒカン、トゲの肩パッドとチェーン)
 const GRID_QUEEN = [
-  '..o.......o..',
-  '...o.....o...',
-  '...ggggggg...',
-  '..ggkgggkgg..',
-  'oogggggggggoo',
-  'oogggooogggoo',
-  'o.ggggggggg.o',
-  'o..gg.g.gg..o',
-  '...g..g..g...',
-];
-// ホタル(変身・縦一列で突撃)
-const GRID_FIREFLY = [
-  '...c.....c...',
-  '....c...c....',
-  '....rrrrr....',
-  '...rbbbbbr...',
-  '.wwbbbbbbbww.',
-  'wwwbbbbbbbwww',
-  '.w..ggggg..w.',
-  '....ggggg....',
-  '.....ggg.....',
   '......g......',
+  '.....ggg.....',
+  '....ggggg....',
+  '....ggggg....',
+  '....sgggs....',
+  '....sksks....',
+  'v...sssss...v',
+  'vve.eeeee.evv',
+  '.eeeeyyyeeee.',
+  '.s..eeeee..s.',
+  '....ee.ee....',
+  '...ee...ee...',
 ];
-// カマキリ(変身・横一列で突撃)
-const GRID_MANTIS = [
-  '.c.........c.',
-  'cc..ccccc..cc',
-  'c..ckccckc..c',
-  'c...ccccc...c',
-  '.cc..ccc..cc.',
-  '...ccccccc...',
-  '..yy.ccc.yy..',
-  '.yy..ccc..yy.',
-  '.....ccc.....',
-  '.....c.c.....',
-];
-// セミ(変身・高速で突撃)
-const GRID_CICADA = [
-  '.....ooo.....',
-  '....okoko....',
-  'cc..ooooo..cc',
-  'cccwooooowccc',
-  '.ccwwooowwcc.',
-  '..ccwooowcc..',
-  '...cwooowc...',
-  '....w.o.w....',
-];
-// トンボ(チャレンジステージ専用)
-const GRID_DRAGONFLY = [
+// イエローパンク(変身・縦一列で突撃。ボーダーシャツ)
+const GRID_FIREFLY = [
+  '......y......',
+  '.....yyy.....',
+  '.....yyy.....',
+  '....syyys....',
+  '....sksks....',
+  '.s...sss...s.',
+  '.w..wwwww..w.',
+  '..wwrrrrrww..',
+  '....wwwww....',
   '....rrrrr....',
-  '....rkrkr....',
-  'cccc.rrr.cccc',
-  '.cccc.r.cccc.',
-  'cccc.rrr.cccc',
-  '.ccc..r..ccc.',
-  '......r......',
-  '......y......',
-  '......r......',
-  '......y......',
-  '......r......',
+  '....e...e....',
+  '...ee...ee...',
 ];
-// プロペラ(チャレンジステージ専用。くるくる回りながら飛ぶ)
+// チェーンパンク(変身・横一列で突撃。両手にチェーン)
+const GRID_MANTIS = [
+  '......c......',
+  '.....ccc.....',
+  '.....ccc.....',
+  '....scccs....',
+  '....sksks....',
+  'v....sss....v',
+  'vs.eeeeeee.sv',
+  'v.eeeeeeeee.v',
+  '....eeeee....',
+  '....ee.ee....',
+  '...ee...ee...',
+];
+// スパイクパンク(変身・高速で突撃。とげとげのリバティスパイク)
+const GRID_CICADA = [
+  '...o..o..o...',
+  '....o.o.o....',
+  '....ooooo....',
+  '....sooos....',
+  '....sksks....',
+  '.....sss.....',
+  '.eeeeeeeeeee.',
+  'se..evvve..es',
+  '....eeeee....',
+  '....ee.ee....',
+  '...ee...ee...',
+];
+// ピンクパンク(チャレンジステージ専用。縦に長いモヒカン)
+const GRID_DRAGONFLY = [
+  '......m......',
+  '......m......',
+  '.....mmm.....',
+  '.....mmm.....',
+  '.....mmm.....',
+  '....smmms....',
+  '....sksks....',
+  '.....sss.....',
+  '..eeeeeeeee..',
+  '.s..eeeee..s.',
+  '....ee.ee....',
+  '....e...e....',
+  '...ee...ee...',
+];
+// ウニ頭パンク(チャレンジステージ専用。全方向に立てた紫の髪で、くるくる回りながら飛ぶ)
 const GRID_PROPELLER = [
-  '.....ppp.....',
-  '.....ppp.....',
   '......p......',
-  '......w......',
-  'pp...www...pp',
-  'pppwwwrwwwppp',
-  'pp...www...pp',
-  '......w......',
-  '......p......',
-  '.....ppp.....',
-  '.....ppp.....',
+  '..p...p...p..',
+  '...p.ppp.p...',
+  '....psssp....',
+  '.pppsksksppp.',
+  '....sssss....',
+  '...p.sss.p...',
+  '..p.eeeee.p..',
+  '...eeeeeee...',
+  '....ee.ee....',
+  '...ee...ee...',
 ];
 const SPRITE_SCALE = 2;  // ドット1粒の大きさ(px)
 
 // 色違いも含めたスプライトの定義
 const SPRITE_DEFS = {
   player: { grid: GRID_PLAYER },
-  captive: { grid: GRID_PLAYER, remap: { w: 'r', r: 'y' } },  // 捕まった自機(赤)
+  captive: { grid: GRID_PLAYER, remap: { n: 'r', N: 'o', v: 'y' } },  // 捕まった自機(制服が赤くなった、悪に落ちたポリス)
   bee: { grid: GRID_BEE },
   moth: { grid: GRID_MOTH },
   queen: { grid: GRID_QUEEN },
-  queen2: { grid: GRID_QUEEN, remap: { g: 'p' } },           // 1発当たった女王(紫)
-  bee_hit: { grid: GRID_BEE, remap: { y: 'w', b: 'w', r: 'w' } },
+  queen2: { grid: GRID_QUEEN, remap: { g: 'p' } },           // 1発当たったボス(モヒカンが紫になる)
+  bee_hit: { grid: GRID_BEE, remap: { r: 'w', s: 'w', e: 'w', v: 'w' } },  // 弾が当たった瞬間の白い点滅(目だけ残す)
   firefly: { grid: GRID_FIREFLY },
   mantis: { grid: GRID_MANTIS },
   cicada: { grid: GRID_CICADA },
@@ -211,7 +270,7 @@ const ENTRY_LEFT = {
   side: { start: [-20, 540], segs: [[[140, 540], [230, 450], [220, 360]], [[210, 260], [110, 250], [110, 330]]] },
 };
 
-// 通常ステージの入場ウェーブ。members は [行, 列]。行0=女王、1-2=ヒラリ、3-4=ブンブン
+// 通常ステージの入場ウェーブ。members は [行, 列]。行0=女王(ボスパンク)、1-2=ヒラリ(ブルーパンク)、3-4=ブンブン(レッドパンク)
 const WAVES = [
   { entry: 'top', mirror: true, members: [[1, 3], [3, 3], [1, 4], [3, 4], [1, 5], [3, 5], [1, 6], [3, 6]] },
   { entry: 'side', mirror: false, members: [[0, 3], [2, 3], [0, 4], [2, 4], [0, 5], [2, 5], [0, 6], [2, 6]] },
@@ -225,7 +284,12 @@ const WAVES = [
 // ============================================================
 let state = 'ready';            // 'ready' | 'playing' | 'paused' | 'gameover'
 let soundOn = loadStorage(KEY_SOUND, 'on') !== 'off';
-let ranking = loadRanking();    // [{ name, score }] を得点の高い順に5件
+// 選んでいる難易度。保存されていなければ NORMAL
+let difficulty = loadStorage(KEY_DIFFICULTY, 'normal');
+if (!DIFFICULTIES[difficulty]) difficulty = 'normal';
+// 難易度ごとのランキング [{ name, score }](得点の高い順に5件)。ranking は選んでいる難易度のもの
+const rankings = Object.fromEntries(DIFF_ORDER.map((d) => [d, loadRanking(d)]));
+let ranking = rankings[difficulty];
 
 // 名前入力の状態
 const entry = { chars: ['A', 'A', 'A'], pos: 0, rank: 0 };
@@ -234,6 +298,8 @@ const game = {
   score: 0,
   hi: ranking[0].score,
   lives: 2,           // 残機(画面に出ている自機は含まない)
+  diffKey: difficulty,             // このゲームの難易度('easy' | 'normal' | 'hard')
+  diff: DIFFICULTIES[difficulty],  // このゲームの難易度の倍率(プレイ中は変わらない)
   stage: 0,
   challenge: false,   // チャレンジステージ中か
   phase: 'intro',     // 'intro' | 'enter' | 'battle' | 'clear' | 'result'
@@ -309,10 +375,15 @@ function saveStorage(key, value) {
   }
 }
 
+// 難易度ごとのランキングの保存キー。NORMAL は旧版と同じキーなので、今までの記録をそのまま使える
+function rankingKey(d) {
+  return d === 'normal' ? KEY_RANKING : `${KEY_RANKING}.${d}`;
+}
+
 // ランキングを読み込む。壊れていたら初期値に戻す
-function loadRanking() {
+function loadRanking(d) {
   try {
-    const r = JSON.parse(loadStorage(KEY_RANKING, 'null'));
+    const r = JSON.parse(loadStorage(rankingKey(d), 'null'));
     if (Array.isArray(r) && r.length === 5 &&
         r.every((x) => x && typeof x.name === 'string' && Number.isFinite(x.score))) {
       return r;
@@ -321,8 +392,8 @@ function loadRanking() {
     // 読めなければ初期値を使う
   }
   const r = DEFAULT_RANKING.map((x) => ({ ...x }));
-  // 旧版で保存したハイスコアがあれば、ランキングに入れて引き継ぐ
-  const old = Number(loadStorage(KEY_HIGH, '0')) || 0;
+  // 旧版で保存したハイスコアがあれば、NORMAL のランキングに入れて引き継ぐ
+  const old = d === 'normal' ? Number(loadStorage(KEY_HIGH, '0')) || 0 : 0;
   if (old > r[4].score) {
     r.push({ name: 'YOU', score: old });
     r.sort((a, b) => b.score - a.score);
@@ -469,7 +540,7 @@ function buildPath(start, segs, dx = 0, mirror = false) {
 
 // 敵を path に沿って動かす。最後まで進んだら true
 function followPath(e, dt) {
-  let move = e.speed * dt;
+  let move = e.speed * game.diff.speed * dt;  // 難易度の倍率をここでまとめてかける
   while (move > 0 && e.pi < e.path.length) {
     const p = e.path[e.pi];
     const dx = p.x - e.x, dy = p.y - e.y;
@@ -558,10 +629,28 @@ function addScore(n) {
 // ============================================================
 // 初期化・状態遷移
 // ============================================================
+// 難易度を選ぶ(タイトル画面・ゲームオーバー画面だけ)。HI-SCORE とランキング表もその難易度のものにする
+function selectDifficulty(d) {
+  if (d === difficulty) return;
+  difficulty = d;
+  saveStorage(KEY_DIFFICULTY, d);
+  ranking = rankings[d];
+  game.hi = ranking[0].score;
+  game.lastRank = -1;  // 前の難易度で登録した順位は光らせない
+  playSound('shoot');
+}
+
+// 難易度を1つ左右にずらす(端では止まる)
+function shiftDifficulty(delta) {
+  const i = DIFF_ORDER.indexOf(difficulty);
+  selectDifficulty(DIFF_ORDER[clamp(i + delta, 0, DIFF_ORDER.length - 1)]);
+}
+
 function launch() {
   ensureAudio();
   Object.assign(game, {
-    score: 0, lives: 2, stage: 0, nextExtend: FIRST_EXTEND, overT: 0,
+    diffKey: difficulty, diff: DIFFICULTIES[difficulty],
+    score: 0, lives: DIFFICULTIES[difficulty].lives, stage: 0, nextExtend: FIRST_EXTEND, overT: 0,
     fired: 0, hits: 0, beamer: null, fireCalm: 0, newRecord: false, messageT: 0,
     hi: ranking[0].score, morphGroup: null, lastRank: -1,
   });
@@ -596,7 +685,7 @@ function startStage(n) {
     game.chHits = 0;
     game.chWaves = Array.from({ length: 5 }, () => ({ killed: 0 }));
     const round = Math.floor(n / 4);
-    // 回ごとに主役の敵が変わる(ブンブン→ヒラリ→ホタル→トンボ→カマキリ→プロペラ→セミ)
+    // 回ごとに主役の敵が変わる(レッド→ブルー→イエロー→ピンク→チェーン→ウニ頭→スパイク)
     const main = CH_TYPES[round % CH_TYPES.length];
     for (let w = 0; w < 5; w++) {
       const pat = CH_PATTERNS[(w + round) % CH_PATTERNS.length];
@@ -648,6 +737,7 @@ function onPlayerLost() {
 function gameOver() {
   game.overAt = performance.now();
   playSound('gameover');
+  ranking = rankings[game.diffKey];
   if (game.score > ranking[4].score) {
     // 5位以内に入ったら名前入力へ
     state = 'entry';
@@ -671,7 +761,7 @@ function confirmLetter() {
   if (entry.pos < 3) return;
   ranking.splice(entry.rank, 0, { name: entry.chars.join(''), score: game.score });
   ranking.length = 5;
-  saveStorage(KEY_RANKING, JSON.stringify(ranking));
+  saveStorage(rankingKey(game.diffKey), JSON.stringify(ranking));
   game.lastRank = entry.rank;
   state = 'gameover';
   game.overAt = performance.now();
@@ -713,6 +803,11 @@ document.addEventListener('keydown', (e) => {
   if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = true;
   if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = true;
   if (k === ' ') keys.fire = true;
+  // タイトル画面・ゲームオーバー画面では ←→ / A D で難易度を選ぶ(押しっぱなしのくり返しは無視)
+  if (canStart() && !e.repeat) {
+    if (k === 'ArrowLeft' || k === 'a' || k === 'A') shiftDifficulty(-1);
+    if (k === 'ArrowRight' || k === 'd' || k === 'D') shiftDifficulty(1);
+  }
   if ((k === ' ' || k === 'Enter') && canStart()) launch();
   if (k === 'p' || k === 'P') togglePause();
   if (k === 'm' || k === 'M') setSound(!soundOn);
@@ -739,12 +834,27 @@ canvas.addEventListener('pointerdown', (e) => {
     else confirmLetter();
     return;
   }
-  if (canStart()) { launch(); return; }
+  if (canStart()) {
+    // 難易度ボタンをタップしたら選ぶだけ。それ以外の場所をタップしたら開始
+    const d = diffButtonAt(e);
+    if (d) selectDifficulty(d);
+    else launch();
+    return;
+  }
   if (state === 'paused') { togglePause(); return; }
   pointer.active = true;
   pointer.x = canvasX(e);
   canvas.setPointerCapture(e.pointerId);
 });
+// タップした位置にある難易度ボタンを返す(なければ null)
+function diffButtonAt(e) {
+  const r = canvas.getBoundingClientRect();
+  const x = canvasX(e);
+  const y = ((e.clientY - r.top) / r.height) * H;
+  if (Math.abs(y - diffBtnY()) > DIFF_BTN_H / 2 + 6) return null;  // 少し広めに判定する
+  return DIFF_ORDER.find((d, i) => Math.abs(x - diffBtnX(i)) <= DIFF_BTN_W / 2) || null;
+}
+
 canvas.addEventListener('pointermove', (e) => {
   if (pointer.active) pointer.x = canvasX(e);
 });
@@ -782,10 +892,12 @@ function startDive(e) {
   e.pi = 0;
   e.speed = 200 + Math.min(game.stage, 15) * 8 + (e.type === 'moth' ? 20 : 0);
   // 面が進むほど弾を多く撃つ
-  e.fireLeft = Math.random() < 0.5 + game.stage * 0.05 ? 1 + (game.stage >= 5 ? 1 : 0) : 0;
+  const d = game.diff;
+  e.fireLeft = Math.random() < (0.5 + game.stage * 0.05) * d.fireChance
+    ? Math.min(1 + (game.stage >= 5 ? 1 : 0), d.maxFire) : 0;
 }
 
-// 女王の突撃。近くのヒラリを最大2機お供に連れていく
+// 女王(ボスパンク)の突撃。近くのヒラリ(ブルーパンク)を最大2機お供に連れていく
 function startQueenDive(q) {
   startDive(q);
   q.speed = 210 + Math.min(game.stage, 15) * 8;
@@ -862,7 +974,7 @@ function canBeam() {
 function launchAttack() {
   if (!player.alive) return;  // 自機がいない間は新しく突撃しない
   const divers = enemies.filter(isAttacking).length;
-  const maxDivers = Math.min(2 + Math.floor(game.stage / 2), 6);
+  const maxDivers = clamp(Math.min(2 + Math.floor(game.stage / 2), 6) + game.diff.maxDivers, 1, 7);
   if (divers >= maxDivers) return;
   const inForm = enemies.filter((e) => !e.dead && e.state === 'formation');
   if (!inForm.length) return;
@@ -887,14 +999,15 @@ function launchAttack() {
 
 function fireEnemyShot(e) {
   // 弾が自機の高さに届くまでの時間から、横方向の速さを決める(狙い撃ち)
-  const time = Math.max(0.3, (PLAYER_Y - e.y) / ENEMY_SHOT_SPEED);
+  const speed = ENEMY_SHOT_SPEED * game.diff.shotSpeed;
+  const time = Math.max(0.3, (PLAYER_Y - e.y) / speed);
   const vx = clamp((player.x - e.x) / time, -110, 110);
-  eShots.push({ x: e.x, y: e.y + 10, vx, vy: ENEMY_SHOT_SPEED, dead: false });
+  eShots.push({ x: e.x, y: e.y + 10, vx, vy: speed, dead: false });
 }
 
 function maybeFire(e, dt) {
   if (e.challenge || !player.alive || game.fireCalm > 0 || e.fireLeft <= 0) return;
-  if (e.y > 160 && e.y < 420 && Math.random() < dt * 1.8) {
+  if (e.y > 160 && e.y < 420 && Math.random() < dt * 1.8 * game.diff.fireRate) {
     e.fireLeft--;
     fireEnemyShot(e);
   }
@@ -923,7 +1036,7 @@ function updateBeam(e, dt) {
       player.y = PLAYER_Y;
       player.spin = 0;
       e.beamT = 3.2;  // ビームを縮め始める
-      showMessage('ファイターが捕まった!');
+      showMessage('ポリスが捕まった!');
       onPlayerLost();
     }
   } else if (!player.captured && e.beamT > 0.8 && e.beamT < 3.2 && player.alive &&
@@ -955,7 +1068,7 @@ function updateEnemies(dt) {
         const s = slotPos(e.row, e.col);
         const dx = s.x - e.x, dy = s.y - e.y;
         const d = Math.hypot(dx, dy);
-        const step = e.speed * dt;
+        const step = e.speed * game.diff.speed * dt;
         if (d <= step) {
           e.x = s.x; e.y = s.y;
           e.state = 'formation';
@@ -1088,7 +1201,7 @@ function killEnemy(e) {
 function startRescue(x, y) {
   rescue = { x, y, spin: 0 };
   playSound('rescue');
-  showMessage('ファイター救出!');
+  showMessage('ポリス救出!');
 }
 
 // 編隊中の女王を倒すと、捕まっていた自機が敵になって女王の真上に並ぶ
@@ -1202,7 +1315,7 @@ function updatePhase(dt) {
         setPhase('clear');
       } else if (enemies.every((e) => e.state === 'formation')) {
         setPhase('battle');
-        game.attackT = 1.5;
+        game.attackT = 1.5 * game.diff.attackInterval;
       }
       break;
     }
@@ -1213,7 +1326,7 @@ function updatePhase(dt) {
         launchAttack();
         // 面が進むほど、残りが少ないほど頻繁に突撃してくる
         const base = Math.max(0.6, 2.0 - game.stage * 0.1);
-        game.attackT = enemies.length <= 8 ? base * 0.5 : base;
+        game.attackT = (enemies.length <= 8 ? base * 0.5 : base) * game.diff.attackInterval;
       }
       if (!enemies.length) setPhase('clear');
       break;
@@ -1274,7 +1387,7 @@ function updateRescue(dt) {
 
   if (player.alive) {
     if (!player.dual) {
-      // 合体してダブルファイターになる
+      // 合体してダブルポリスになる
       player.dual = true;
       player.x = clamp(player.x + DUAL_GAP, 16 + DUAL_GAP, W - 16 - DUAL_GAP);
     } else {
@@ -1425,12 +1538,17 @@ function drawHud() {
     for (let i = 0; i < Math.min(game.lives, 8); i++) {
       drawSprite('player', 18 + i * 22, H - 16, 0, 0.7, 0.7);
     }
+    // 遊んでいる難易度(右下)。ゲームオーバー画面では、選び直したボタンと食い違わないよう出さない
+    if (state === 'playing' || state === 'paused') {
+      text(game.diff.label, W - 12, H - 16, { size: 9, color: game.diff.color, align: 'right' });
+    }
   }
 }
 
 // ランキング表。直前に登録した順位は黄色で点滅させる
 function drawRanking(y0) {
-  text('― ランキング ―', W / 2, y0, { size: 18, ja: true, color: '#3adf6a' });
+  // どの難易度のランキングかを見出しに出す
+  text(`― ランキング ${DIFFICULTIES[difficulty].label} ―`, W / 2, y0, { size: 18, ja: true, color: '#3adf6a' });
   const labels = ['1ST', '2ND', '3RD', '4TH', '5TH'];
   ranking.forEach((r, i) => {
     const y = y0 + 38 + i * 30;
@@ -1469,26 +1587,50 @@ function drawEntry() {
   text('タッチ: 左右をタップで選ぶ・真ん中で決定', W / 2, 480, { size: 14, ja: true, color: '#a8a8c8' });
 }
 
+// 難易度ボタンの y(タイトル画面とゲームオーバー画面で少し変える)
+function diffBtnY() {
+  return state === 'gameover' ? 498 : 488;
+}
+
+// 難易度ボタンを3つ並べて描く。選んでいるものは塗りつぶして光らせる
+function drawDifficultyButtons() {
+  const y = diffBtnY();
+  DIFF_ORDER.forEach((d, i) => {
+    const def = DIFFICULTIES[d];
+    const x = diffBtnX(i);
+    const on = d === difficulty;
+    ctx.fillStyle = on ? def.color : 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(x - DIFF_BTN_W / 2, y - DIFF_BTN_H / 2, DIFF_BTN_W, DIFF_BTN_H);
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - DIFF_BTN_W / 2, y - DIFF_BTN_H / 2, DIFF_BTN_W, DIFF_BTN_H);
+    text(def.label, x, y + 1, { size: 11, color: on ? '#000' : def.color });
+  });
+  // 左右の矢印(キーボードで選べることを示す)
+  text('◀', diffBtnX(0) - DIFF_BTN_W / 2 - 14, y, { size: 12, color: '#a8a8c8', ja: true });
+  text('▶', diffBtnX(2) + DIFF_BTN_W / 2 + 14, y, { size: 12, color: '#a8a8c8', ja: true });
+}
+
 function drawReadyScreen() {
   ctx.save();
   ctx.fillStyle = '#ff3cc8';
-  ctx.font = `44px ${FONT_JA}`;
+  ctx.font = `40px ${FONT_JA}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('ほしむし艦隊', W / 2 + 4, 154);
+  ctx.fillText('ポリス vs パンクス', W / 2 + 4, 154);
   ctx.fillStyle = '#ffd23a';
-  ctx.fillText('ほしむし艦隊', W / 2, 150);
+  ctx.fillText('ポリス vs パンクス', W / 2, 150);
   ctx.restore();
-  text('HOSHIMUSHI FLEET', W / 2, 200, { size: 10, color: '#3cf0ff' });
+  text('POLICE VS PUNKS', W / 2, 200, { size: 10, color: '#3cf0ff' });
 
   // 6秒ごとに「スコア表」「3機編隊」「ランキング」を切り替えて見せる
   const page = Math.floor(performance.now() / 6000) % 3;
   if (page === 0) {
     text('― スコア表 ―', W / 2, 260, { size: 18, ja: true, color: '#3adf6a' });
     const rows = [
-      ['bee', 'ブンブン', '50 / 100'],
-      ['moth', 'ヒラリ', '80 / 160'],
-      ['queen', '女王ムシ', '150 / 400〜1600'],
+      ['bee', 'レッドパンク', '50 / 100'],
+      ['moth', 'ブルーパンク', '80 / 160'],
+      ['queen', 'ボスパンク', '150 / 400〜1600'],
     ];
     rows.forEach(([name, label, pts], i) => {
       const y = 300 + i * 40;
@@ -1496,11 +1638,11 @@ function drawReadyScreen() {
       text(label, 140, y, { size: 16, ja: true, align: 'left' });
       text(pts, 260, y, { size: 9, align: 'left', color: '#ffd23a' });
     });
-    text('女王ムシのビームで捕まった自機を', W / 2, 430, { size: 15, ja: true, color: '#a8a8c8' });
+    text('ボスパンクのビームで捕まったポリスを', W / 2, 430, { size: 15, ja: true, color: '#a8a8c8' });
     text('突撃中に取り返すと2機合体!', W / 2, 452, { size: 15, ja: true, color: '#a8a8c8' });
   } else if (page === 1) {
     text('― 3機編隊ボーナス ―', W / 2, 260, { size: 18, ja: true, color: '#3adf6a' });
-    const rows = [['firefly', 'ホタル'], ['mantis', 'カマキリ'], ['cicada', 'セミ']];
+    const rows = [['firefly', 'イエローパンク'], ['mantis', 'チェーンパンク'], ['cicada', 'スパイクパンク']];
     rows.forEach(([name, label], i) => {
       const y = 300 + i * 40;
       // 3機並べて描く
@@ -1514,9 +1656,14 @@ function drawReadyScreen() {
     drawRanking(250);
   }
 
+  // 難易度の選択
+  drawDifficultyButtons();
+  text(DIFFICULTIES[difficulty].desc, W / 2, 522, { size: 14, ja: true, color: '#a8a8c8' });
+
   if (Math.floor(performance.now() / 500) % 2 === 0) {
-    text('PUSH SPACE / TAP', W / 2, 520, { size: 14 });
+    text('PUSH SPACE / TAP', W / 2, 562, { size: 14 });
   }
+  text('←→ / ボタンで難易度を選ぶ', W / 2, 592, { size: 13, ja: true, color: '#a8a8c8' });
 }
 
 function drawOverlay() {
@@ -1559,9 +1706,12 @@ function drawOverlay() {
     text(`命中率   ${ratio} %`, W / 2, 232, { size: 16, ja: true });
     if (game.newRecord) text('NEW RECORD!', W / 2, 268, { size: 14, color: '#3adf6a' });
     drawRanking(310);
+    // リトライの前に難易度を変えられる
+    drawDifficultyButtons();
     if (Math.floor(performance.now() / 500) % 2 === 0) {
-      text('SPACE / TAP でリトライ', W / 2, 540, { size: 18, ja: true });
+      text('SPACE / TAP でリトライ', W / 2, 548, { size: 18, ja: true });
     }
+    text('←→ / ボタンで難易度を変える', W / 2, 580, { size: 13, ja: true, color: '#a8a8c8' });
   }
 }
 
