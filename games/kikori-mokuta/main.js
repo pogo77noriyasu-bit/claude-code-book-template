@@ -404,11 +404,23 @@ document.querySelectorAll('.pad button').forEach((btn) => {
   btn.addEventListener('pointerleave', up);
 });
 
+// 押しているキーの記録をすべて消す。
+// キーを押したままフォーカスが外れると keyup がページに届かず、
+// 「←が押されっぱなし」と誤認して左端まで勝手に歩き、→を押しても左右が打ち消し合って動けなくなる。
+// それを防ぐため、フォーカスが外れたら押しっぱなしの記録をリセットする
+function releaseAllKeys() {
+  keys.left = keys.right = keys.down = false;
+}
+
 // タブを切り替えたら自動で一時停止する
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state !== 'paused') togglePause();
-  keys.left = keys.right = keys.down = false;
+  releaseAllKeys();
 });
+
+// 別のウィンドウをクリックした・Alt+Tab で切り替えたなど、タブは見えたままフォーカスだけ外れた場合。
+// このときは visibilitychange が起きないので、blur でもキーの記録を消す
+window.addEventListener('blur', releaseAllKeys);
 
 // ============================================================
 // 行動(オノ)
