@@ -41,6 +41,14 @@
       touch-action: none;
       image-rendering: pixelated;
     }
+    /* ゲーム画面と操作ボタンは長押ししても、文字選択・コピーのメニュー・
+       画像の保存メニュー(iOS の吹き出し)・タップ時の青いハイライトが出ないようにする */
+    canvas, button {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
     .bar {
       display: flex;
       flex-wrap: wrap;
@@ -58,6 +66,8 @@
       font-family: inherit;
       font-size: 13px;
       cursor: pointer;
+      /* ダブルタップによる拡大を止めて、タップにすぐ反応させる(スクロールはそのままできる) */
+      touch-action: manipulation;
     }
     a { color: #3cf0ff; }
   </style>
