@@ -32,6 +32,8 @@ DP.sprites = (function () {
     T: '#d89a52', // バットの木(明るい)
     t: '#8e5626', // バットの木(影)
     w: '#f6d29a', // バットの木のつや
+    O: '#ff8a1e', // オレンジ(炎)
+    e: '#d8e4f0', // ドクロの影(青白い白)
   };
 
   // 文字列の配列 → { w, h, rows }(短い行は右を透明で埋める)
@@ -385,6 +387,46 @@ DP.sprites = (function () {
     // 釘バット。縦(振りかぶり)と横(叩きつけ・置いてあるとき。先端が右)
     batUp: BAT_UP,
     batSide: rotateCW(BAT_UP),
+
+    // ファイヤースカル(2 面の敵)。12x11。白いドクロに、銀の鋲とトゲの付いた赤いバンダナ。
+    // 左右反転で向きを変える(目の位置はほぼ対称)。青白い炎は renderer.js が後ろに描く
+    skull: def([
+      '...WWWWWW...',
+      'G.WWWWWWWW.G',
+      'GRRRRRRRRRRG',
+      '.RGRRGRRGRR.',
+      '.WWWWWWWWWe.',
+      '.WKKWWWWKKe.',
+      '.WKKWWWWKKe.',
+      '..WWWKKWWe..',
+      '..WWWWWWWe..',
+      '...WKWKWK...',
+      '....WWWW....',
+    ]),
+
+    // 爆音アンプ(2 面の中央)。18x20。銀の枠に金色のつまみと赤いロゴ板、下に 4 つのスピーカー
+    amp: def([
+      'GGGGGGGGGGGGGGGGGG',
+      'GkkkkkkkkkkkkkkkkG',
+      'GkYkYkYkYkkRRRRRkG',
+      'GkkkkkkkkkkkkkkkkG',
+      'GGGGGGGGGGGGGGGGGG',
+      'GKKKKKKKKKKKKKKKKG',
+      'GKKkkkkKKKKkkkkKKG',
+      'GKkkGGkkKKkkGGkkKG',
+      'GKkGkkGkKKkGkkGkKG',
+      'GKkGkkGkKKkGkkGkKG',
+      'GKkkGGkkKKkkGGkkKG',
+      'GKKkkkkKKKKkkkkKKG',
+      'GKKKKKKKKKKKKKKKKG',
+      'GKKkkkkKKKKkkkkKKG',
+      'GKkkGGkkKKkkGGkkKG',
+      'GKkGkkGkKKkGkkGkKG',
+      'GKkGkkGkKKkGkkGkKG',
+      'GKkkGGkkKKkkGGkkKG',
+      'GKKkkkkKKKKkkkkKKG',
+      'GGGGGGGGGGGGGGGGGG',
+    ]),
 
     // ハート(クリア演出)
     heart: def(['.RR.RR.', 'RRRRRRR', 'RRRRRRR', '.RRRRR.', '..RRR..', '...R...']),

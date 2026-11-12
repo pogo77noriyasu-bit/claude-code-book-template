@@ -2,8 +2,9 @@
 // 有効になる条件: 「localhost / 127.0.0.1 / ローカルファイル(file://)で開いている」かつ「URL に ?dev が付いている」。
 // GitHub Pages などの公開先では ?dev を付けても有効にならない。
 //
-// 使えるキー(プレイ中のみ):
-//   C … ステージをクリアしたことにして、ゴリラ警官の逃走演出を直接始める
+// 使えるキー:
+//   C     … (プレイ中のみ)ステージをクリアしたことにして、ゴリラ警官の逃走演出を直接始める
+//   1〜9 … (いつでも)その面から新しいゲームを始める(1 = 1 面、2 = 2 面)
 window.DP = window.DP || {};
 
 DP.devTools = (function () {
@@ -21,6 +22,8 @@ DP.devTools = (function () {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       if (e.code === 'KeyC') game._devClear();
+      const m = /^Digit([1-9])$/.exec(e.code);
+      if (m) game._startStage(Number(m[1]) - 1);
     });
     return true;
   }

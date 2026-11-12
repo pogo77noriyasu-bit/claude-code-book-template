@@ -8,6 +8,8 @@ DP.stages = DP.stages || [];
 DP.stages.push({
   id: 'girders',
   name: 'STAGE 1',
+  // この面の仕掛け(js/mechanics.js)。ゴリラ警官がビールを転がす
+  mechanics: ['beerThrow'],
   // 鉄骨: (x1, y1) から (x2, y2) への線分。y は上面(立つ面)の高さ。
   // 低い側(y が大きい側)へ障害物が転がる。
   girders: [

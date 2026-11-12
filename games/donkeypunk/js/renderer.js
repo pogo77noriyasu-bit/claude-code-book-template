@@ -95,17 +95,118 @@ DP.createRenderer = function (canvas) {
     }
   }
 
-  // 鉄骨は 16px ごとの段々で描く(ドット絵らしい斜め)
-  function drawGirder(g) {
+  // ベルトコンベア(2 面)。黒いベルトの継ぎ目が流れる向きに動き、両端の滑車の軸の点が回る。
+  // 向きが逆転する直前(convWarn)は滑車が黄色く点滅する
+  function drawConveyor(g, frame) {
+    const T = C.GIRDER_THICKNESS;
+    const y = Math.round(g.y1);
+    ctx.fillStyle = '#2a2a34';
+    ctx.fillRect(g.x1, y, g.x2 - g.x1, T);
+    ctx.fillStyle = '#9a9aae'; // ベルトの上面
+    ctx.fillRect(g.x1, y, g.x2 - g.x1, 1);
+    // 継ぎ目(8px ごと)。beltOffset ぶんずらして、流れているように見せる
+    const off = ((Math.round(g.beltOffset || 0) % 8) + 8) % 8;
+    ctx.fillStyle = '#55556a';
+    for (let x = g.x1 + 6 + off - 8; x < g.x2 - 4; x += 8) {
+      if (x >= g.x1 + 4) ctx.fillRect(x, y + 2, 2, T - 3);
+    }
+    // 両端の滑車
+    const blink = g.convWarn && Math.floor(frame / 6) % 2 === 0;
+    // 軸の点の位置(ベルトが流れると回る。4 か所を順に回る)
+    const spokes = [[-3, 1], [1, -1], [3, 3], [-1, 5]];
+    const k = ((Math.floor((g.beltOffset || 0) / 3) % 4) + 4) % 4;
+    // 画面の端まで届いているベルトは、滑車が画面からはみ出さないよう内側に寄せて描く(見た目だけ)
+    for (const px of [Math.max(g.x1, 6), Math.min(g.x2, C.WIDTH - 6)]) {
+      ctx.fillStyle = blink ? '#ffd23c' : '#3cd8ff';
+      ctx.fillRect(px - 6, y - 1, 12, T + 2);
+      ctx.fillRect(px - 4, y - 3, 8, T + 6);
+      ctx.fillStyle = '#05040f';
+      ctx.fillRect(px - 1, y + 2, 2, 2);
+      const [sx, sy] = spokes[k];
+      ctx.fillRect(px + sx - 1, y + sy - 1, 2, 2);
+    }
+  }
+
+  // 爆音アンプの下の格子の台(錆びた鉄骨の X 字の組み合わせ)。見た目だけ
+  function drawAmpStand(a, colors) {
+    const col = colors || DEFAULT_GIRDER_COLORS;
+    const left = a.x - 16;
+    const top = a.y;
+    const h = a.standBottom - a.y;
+    ctx.fillStyle = col.bottom;
+    ctx.fillRect(left, top, 2, h); // 左右の柱
+    ctx.fillRect(left + 30, top, 2, h);
+    ctx.fillStyle = col.body;
+    // 16px ごとに X 字の筋交い(2px のドットで斜めに)
+    for (let y0 = top; y0 + 16 <= top + h; y0 += 16) {
+      for (let i = 0; i < 8; i++) {
+        ctx.fillRect(left + 2 + i * 3.5, y0 + i * 2, 2, 2);
+        ctx.fillRect(left + 28 - i * 3.5, y0 + i * 2, 2, 2);
+      }
+      ctx.fillRect(left, y0, 32, 2); // 横の梁
+    }
+  }
+
+  // 爆音アンプの上で揺らめく炎(下から黄 → オレンジ → 赤)。2x2 のドットの柱を 16 本並べ、
+  // 5 ステップごとに高さを変えて揺らす。中央ほど高い。ときどき火の粉が飛ぶ
+  const FLAME = { Y: '#ffd23c', O: '#ff8a1e', R: '#ff2a2a' };
+  // fs: 炎の大きさ({ scale, cols, flaring }。DP.mechanics.amp.flameScale)。ふだんは scale 1・柱 16 本。
+  // スカルが出現するときは高く・広く噴き上がり、揺らめきが速くなって、てっぺんから火の粉が上へ飛ぶ
+  function drawAmpFlames(cx, baseY, frame, fs) {
+    const f = fs || { scale: 1, cols: 16, flaring: false };
+    const t = Math.floor(frame / (f.flaring ? 3 : 5));
+    const sc = f.scale;
+    const n = f.cols;
+    const mid = (n - 1) / 2;
+    for (let c = 0; c < n; c++) {
+      const center = 1 - Math.abs(c - mid) / (mid + 0.5); // 中央 1 → 端 0 くらい
+      const wave = 2.2 * Math.sin(t * 1.7 + c * 1.3) + 1.4 * Math.sin(t * 0.9 + c * 2.7);
+      const h = Math.max(1, Math.round((2 + center * 9 + wave) * sc)); // 柱の高さ(ドット数)
+      const x = cx - n + c * 2;
+      // 燃え上がり中: 柱のてっぺんから火の粉が勢いよく上へ飛ぶ
+      if (f.flaring && (c + t) % 3 === 0) {
+        const rise = (frame * 3 + c * 11) % 28;
+        ctx.fillStyle = (c + t) % 2 ? FLAME.Y : FLAME.O;
+        ctx.fillRect(x, baseY - (h + 2) * 2 - rise, 2, 2);
+      }
+      for (let r = 0; r < h; r++) {
+        ctx.fillStyle = r < h * 0.4 ? FLAME.Y : r < h * 0.75 ? FLAME.O : FLAME.R;
+        ctx.fillRect(x, baseY - (r + 1) * 2, 2, 2);
+      }
+      // 火の粉(柱の少し上に、ときどき)
+      if ((t + c * 7) % 11 === 0) {
+        ctx.fillStyle = FLAME.O;
+        ctx.fillRect(x, baseY - (h + 2 + ((t + c) % 3)) * 2, 2, 2);
+      }
+    }
+  }
+
+  // 爆音アンプ(2 面の中央)。台 → 本体 → 炎の順に描く。
+  // flare: ファイヤースカルが出現するときの残りステップ。炎が一瞬大きく燃え上がって、また戻る
+  function drawAmp(a, colors, frame, flare) {
+    spr.draw(ctx, 'amp', a.x, a.y);
+    drawAmpFlames(a.x, a.y - spr.DATA.amp.h * C.PIXEL, frame, DP.mechanics.amp.flameScale(flare));
+  }
+
+  // 鉄骨の色(本体・上の縁・下の縁)。ステージデータの girderColors で面ごとに変えられる(1 面はこの色)
+  const DEFAULT_GIRDER_COLORS = { body: '#ff2f6e', top: '#ffa0c0', bottom: '#8a0f38' };
+
+  // 鉄骨は 16px ごとの段々で描く(ドット絵らしい斜め)。kind: 'conveyor' はベルトコンベアとして描く
+  function drawGirder(g, colors, frame) {
+    if (g.kind === 'conveyor') {
+      drawConveyor(g, frame || 0);
+      return;
+    }
+    const col = colors || DEFAULT_GIRDER_COLORS;
     const T = C.GIRDER_THICKNESS;
     for (let x = g.x1; x < g.x2; x += 16) {
       const w = Math.min(16, g.x2 - x);
       const y = Math.round(geo.surfaceY(g, x + w / 2));
-      ctx.fillStyle = '#ff2f6e';
+      ctx.fillStyle = col.body;
       ctx.fillRect(x, y, w, T);
-      ctx.fillStyle = '#ffa0c0';
+      ctx.fillStyle = col.top;
       ctx.fillRect(x, y, w, 1);
-      ctx.fillStyle = '#8a0f38';
+      ctx.fillStyle = col.bottom;
       ctx.fillRect(x, y + T - 1, w, 1);
       // 筋交い(V 字)
       ctx.fillStyle = '#05040f';
@@ -117,7 +218,38 @@ DP.createRenderer = function (canvas) {
     }
   }
 
-  function drawPlayer(p, frame, state, timer) {
+  // 炎上(ミスの理由 'burn')の演出: その場で止まった主人公を、黄・オレンジ・赤の炎が包む。
+  // 後半はだんだん黒こげになる。炎は 2x2 のドットの柱で、4 ステップごとに高さが変わって揺らめく。
+  // (爆音アンプ・将来のファイヤースカルなど、炎上のミスはすべてこの演出)
+  function drawBurning(p, timer) {
+    const total = (C.timing.dyingByReason || {}).burn || C.timing.dying;
+    const k = Math.min(1, timer / total); // 0 → 1
+    spr.draw(ctx, 'punkStand', p.x, p.y + 1, { flip: p.facing < 0 });
+    // 黒こげ(後半ほど濃く)。主人公の体のまわりだけを暗くする
+    if (k > 0.3) {
+      ctx.fillStyle = 'rgba(20,8,0,' + Math.min(0.85, (k - 0.3) * 1.4).toFixed(2) + ')';
+      ctx.fillRect(Math.round(p.x - 14), Math.round(p.y - 39), 28, 40);
+    }
+    // 炎: 足元から頭の上まで。中央ほど高く、はじめの数ステップで一気に燃え上がる
+    const t = Math.floor(timer / 4);
+    const grow = Math.min(1, timer / 8);
+    for (let c = 0; c < 14; c++) {
+      const center = 1 - Math.abs(c - 6.5) / 7.5;
+      const wave = 2.5 * Math.sin(t * 1.9 + c * 1.1) + 1.5 * Math.sin(t * 1.1 + c * 2.3);
+      const h = Math.max(1, Math.round((6 + center * 16 + wave) * grow));
+      const x = Math.round(p.x - 14 + c * 2);
+      for (let r = 0; r < h; r++) {
+        ctx.fillStyle = r < h * 0.35 ? FLAME.Y : r < h * 0.7 ? FLAME.O : FLAME.R;
+        ctx.fillRect(x, Math.round(p.y + 1) - (r + 1) * 2, 2, 2);
+      }
+    }
+  }
+
+  function drawPlayer(p, frame, state, timer, deathReason) {
+    if (p.state === 'dead' && deathReason === 'burn') {
+      drawBurning(p, timer);
+      return;
+    }
     if (p.state === 'dead') {
       // ミス: くるくる回ってから倒れる
       const t = timer;
@@ -199,9 +331,58 @@ DP.createRenderer = function (canvas) {
     ctx.fillRect(bx, by, Math.ceil(bw * ratio), 3);
   }
 
+  // ファイヤースカルの青白い炎(ドクロの後ろで揺らめく)。2x2 のドットの柱を 16 本(幅 32px)並べ、
+  // ドクロ(幅 24px)の左右と上からはみ出して見えるようにする
+  const SKULL_FLAME = { core: '#e8f8ff', mid: '#7fd8ff', out: '#2f7fff' };
+  function drawSkullFlame(cx, baseY, anim, scale) {
+    const t = Math.floor(anim / 4);
+    for (let c = 0; c < 16; c++) {
+      const center = 1 - Math.abs(c - 7.5) / 8.5;
+      const wave = 2 * Math.sin(t * 1.6 + c * 1.4) + 1.3 * Math.sin(t * 0.8 + c * 2.6);
+      const h = Math.max(1, Math.round((6 + center * 12 + wave) * scale));
+      for (let r = 0; r < h; r++) {
+        ctx.fillStyle = r < h * 0.35 ? SKULL_FLAME.core : r < h * 0.7 ? SKULL_FLAME.mid : SKULL_FLAME.out;
+        ctx.fillRect(Math.round(cx - 16 + c * 2), Math.round(baseY) - (r + 1) * 2, 2, 2);
+      }
+    }
+  }
+
+  // ファイヤースカル。出現中は炎が燃え上がり、ドクロが下からせり上がる
+  function drawSkull(e) {
+    if (e.state === 'emerge') {
+      // 爆音アンプの炎の中から、青白い炎とともにせり上がる(ドクロは半分を過ぎてから見える)
+      const k = Math.min(1, e.t / C.skull.emergeFrames);
+      drawSkullFlame(e.x, e.y - 2, e.anim, 0.4 + 0.6 * k);
+      if (k > 0.35) spr.draw(ctx, 'skull', e.x, e.y - 1, { flip: e.dir < 0 });
+      return;
+    }
+    const bob = e.state === 'spawn' || e.state === 'leap' ? 0 : Math.round(Math.sin(e.anim / 8) * 1.5); // ふわふわ
+    const footY = e.y - 1 + bob;
+    if (e.state === 'spawn') {
+      const k = Math.min(1, e.t / C.skull.spawnFrames);
+      drawSkullFlame(e.x, footY, e.anim, k);
+      if (k > 0.4) spr.draw(ctx, 'skull', e.x, footY + Math.round((1 - k) * 14));
+      return;
+    }
+    drawSkullFlame(e.x, footY - 2, e.anim, 1);
+    spr.draw(ctx, 'skull', e.x, footY, { flip: e.dir < 0 });
+  }
+
   // ビールが割れた破片(瓶は緑、缶は赤と銀)
   function drawEffects(effects) {
     for (const e of effects) {
+      if (e.type === 'skull') {
+        // ファイヤースカルが砕ける: 白い骨のかけらが飛び散り、青い炎がしぼんで消える
+        if (e.t < 16) drawSkullFlame(e.x, e.y + 8, e.t * 3, Math.max(0, 1 - e.t / 16));
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + 0.2;
+          const r = e.t * 1.8;
+          ctx.fillStyle = i % 2 ? '#ffffff' : '#d8e4f0';
+          ctx.fillRect(Math.round(e.x + Math.cos(a) * r), Math.round(e.y + Math.sin(a) * r + e.t * e.t * 0.05), 3, 3);
+        }
+        if (e.t < 6) text('CRASH!', e.x, e.y - 18, { size: 8, align: 'center', color: '#7fd8ff' });
+        continue;
+      }
       const colors = e.type === 'bottle' ? ['#1f8a3a', '#8cf0a0'] : ['#e02a2a', '#d8dde4'];
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 + 0.3;
@@ -353,9 +534,12 @@ DP.createRenderer = function (canvas) {
     drawBackground(g.frame);
 
     if (g.level) {
+      const stage = g.level.stage;
+      if (stage.amp) drawAmpStand(stage.amp, stage.girderColors); // 格子の台は鉄骨・ハシゴより奥
       drawEscapeLadders(g.level);
       for (const l of g.level.ladders) drawLadder(l);
-      for (const gd of g.level.girders) drawGirder(gd);
+      for (const gd of g.level.girders) drawGirder(gd, stage.girderColors, g.frame);
+      if (stage.amp) drawAmp(stage.amp, stage.girderColors, g.frame, g.level.ampFlare || 0);
       if (g.state === 'escape' && g.escape) {
         drawEscape(g.escape);
       } else {
@@ -365,14 +549,16 @@ DP.createRenderer = function (canvas) {
       }
       drawItems(g.items, g.frame);
       for (const h of g.hazards) drawHazard(h);
-      drawPlayer(g.player, g.frame, g.state, g.timer);
+      for (const e of g.enemies) drawSkull(e);
+      drawPlayer(g.player, g.frame, g.state, g.timer, g.deathReason);
       drawHeldBat(g.player, g.frame);
       drawEffects(g.effects);
       drawPopups(g);
     }
     drawHud(g);
     // 開発用ショートカットが有効なときだけ、画面の下に目印を出す
-    if (g.devMode) text('DEV  C:クリア演出', 8, C.HEIGHT - 16, { size: 10, ja: true, color: '#ffd23c' });
+    // (いちばん下の床 y=540〜548 に重ならないよう、その下に出す)
+    if (g.devMode) text('DEV  C:クリア演出  1/2:面を選んで開始', 8, C.HEIGHT - 11, { size: 10, ja: true, color: '#ffd23c' });
 
     const cx = C.WIDTH / 2;
     if (g.state === 'title') {

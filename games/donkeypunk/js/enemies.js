@@ -55,6 +55,13 @@ DP.enemies = (function () {
     return ev;
   }
 
+  // 何も投げない面でのゴリラ(待機アニメだけ進める)
+  function idleBoss(boss) {
+    boss.anim++;
+    boss.state = 'idle';
+    boss.holding = null;
+  }
+
   // ゴリラの当たり判定(大きな体)
   function bossHitbox(boss) {
     return { x: boss.x, y: boss.y, w: 40, h: 44 };
@@ -70,5 +77,5 @@ DP.enemies = (function () {
     return { x: h.x, y: h.y, w: 16, h: 28 };
   }
 
-  return { createBoss, updateBoss, bossHitbox, createHeroine, heroineHitbox };
+  return { createBoss, updateBoss, idleBoss, bossHitbox, createHeroine, heroineHitbox };
 })();

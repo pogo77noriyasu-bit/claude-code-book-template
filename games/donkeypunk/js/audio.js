@@ -20,6 +20,21 @@ DP.audio = (function () {
     return ctx;
   }
 
+  // ブラウザの音声再生の制限への対応: 多くのブラウザは、ユーザーがキーやボタンを押すまで音を出させない。
+  // 最初のキー入力・クリック・タッチのときに AudioContext を作って(止まっていれば)再開しておく。
+  // それより前に BGM の再生を指示されていた場合も、ここで再開した時点から鳴り始める
+  function unlock() {
+    try {
+      const ac = ensure();
+      if (ac && ac.state === 'suspended') ac.resume();
+    } catch (e) {
+      /* 音が使えなくてもゲームは続ける */
+    }
+  }
+  for (const type of ['keydown', 'pointerdown', 'touchstart']) {
+    window.addEventListener(type, unlock, { passive: true });
+  }
+
   // 短い音を並べて鳴らす。notes: [[周波数Hz, 長さ秒], ...]
   function tone(notes, type, volume) {
     const ac = ensure();
@@ -179,7 +194,10 @@ DP.audio = (function () {
     batEnd: () => tone([[784, 0.06], [523, 0.06], [392, 0.12]], 'triangle', 0.07),
   };
 
-  // ---- BGM(釘バット使用中に流すループ曲。オリジナルのフレーズ) ----
+  // ---- BGM ----
+  // 'main': 通常プレイの BGM(全ステージ共通。曲データは js/music.js)
+  // 'bat' : 釘バット使用中に流すループ曲(オリジナルのフレーズ。使用中はこちらが優先。どちらを流すかは game.js が決める)
+  // どちらも Web Audio で合成する(音源ファイルは使わない)
   // 1 文字列 = 1 小節 = 8 分音符 8 個。'.' は休符、'-' は前の音をのばす
   const N = { B3: 247, C4: 262, D4: 294, E4: 330, 'F#4': 370, G4: 392, A4: 440, B4: 494,
     C5: 523, D5: 587, 'D#5': 622, E5: 659, 'F#5': 740, G5: 784, A5: 880, B5: 988,
@@ -196,7 +214,9 @@ DP.audio = (function () {
     // ベース(三角波): パンクらしく 8 分でルート音を刻む。Em → C → D → B
     bass: ['E2', 'C3', 'D3', 'B2'],
   };
-  const music = { name: null, bus: null, timer: null, nextTime: 0, step: 0 };
+  // active: 鳴らしている BGM の数(テスト用。重複して流れていないか = 0 か 1 であること)
+  const music = { name: null, bus: null, out: null, timer: null, nextTime: 0, step: 0, active: 0 };
+  let onMusicStep = null; // テスト用の通知先(BGM の 1 ステップを予約するたびに呼ぶ)
 
   // BGM 用の 1 音(music.bus につなぐので、止めるときはまとめて消せる)
   function musicNote(ac, freq, t, dur, type, vol) {
@@ -226,8 +246,8 @@ DP.audio = (function () {
     src.start(t);
   }
 
-  // 8 分音符 1 つ分を予約する
-  function scheduleStep(ac, i, t) {
+  // 釘バットの BGM: 8 分音符 1 つ分を予約する
+  function scheduleBatStep(ac, i, t) {
     const song = BAT_SONG;
     const eighth = 60 / song.bpm / 2;
     const bar = Math.floor(i / 8);
@@ -242,28 +262,144 @@ DP.audio = (function () {
     if (pos === 2 || pos === 6) musicSnare(ac, t); // 2 拍目・4 拍目の裏打ち
   }
 
+  // ---- 通常プレイの BGM(ファミコン風: 矩形波 2 つ・三角波・雑音) ----
+
+  // デューティ比 duty の矩形波(パルス波)の波形。Web Audio の 'square' は 50% 固定なので、
+  // フーリエ級数で 25% / 12.5% などの細い矩形波を作る(AudioContext ごとに 1 回だけ作って使い回す)
+  const pulseWaves = {};
+  function pulseWave(ac, duty) {
+    if (pulseWaves[duty]) return pulseWaves[duty];
+    const n = 64;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+    for (let k = 1; k < n; k++) {
+      real[k] = Math.sin(2 * Math.PI * k * duty) / (Math.PI * k);
+      imag[k] = (1 - Math.cos(2 * Math.PI * k * duty)) / (Math.PI * k);
+    }
+    pulseWaves[duty] = ac.createPeriodicWave(real, imag);
+    return pulseWaves[duty];
+  }
+
+  // 雑音の波形(1 秒分。毎回作らずに使い回す)。粗さ hold: 何サンプル同じ値を続けるか(大きいほど低く濁る)
+  const noiseBufs = {};
+  function noiseBuffer(ac, hold) {
+    if (noiseBufs[hold]) return noiseBufs[hold];
+    const len = ac.sampleRate;
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    let v = 0;
+    for (let i = 0; i < len; i++) {
+      if (i % hold === 0) v = Math.random() * 2 - 1;
+      data[i] = v;
+    }
+    noiseBufs[hold] = buf;
+    return buf;
+  }
+
+  // DP.music.events が返す 1 音を、時刻 t に鳴らす予約をする
+  function playMusicEvent(ac, e, t) {
+    const gain = ac.createGain();
+    gain.connect(music.bus);
+    if (e.ch === 'noise') {
+      // スネアは粗めの雑音、ハイハット・クラッシュは細かい雑音
+      const src = ac.createBufferSource();
+      src.buffer = noiseBuffer(ac, e.kind === 'snare' ? 3 : 1);
+      gain.gain.setValueAtTime(e.vol, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + e.dur);
+      src.connect(gain);
+      src.start(t, Math.random() * 0.5);
+      src.stop(t + e.dur + 0.01);
+      return;
+    }
+    const osc = ac.createOscillator();
+    if (e.ch === 'tri') osc.type = 'triangle';
+    else osc.setPeriodicWave(pulseWave(ac, e.duty || 0.5));
+    osc.frequency.setValueAtTime(e.freq, t);
+    if (e.freqEnd) osc.frequency.exponentialRampToValueAtTime(e.freqEnd, t + e.dur); // キック: 音程を一瞬で下げる
+    if (e.ch === 'tri') {
+      // 三角波は(ファミコンと同じく)音量の変化なし。鳴らす長さだけで区切る
+      gain.gain.setValueAtTime(e.vol, t);
+      gain.gain.setValueAtTime(0, t + e.dur);
+    } else {
+      // 矩形波は鳴り始めの音量を少し保ってから減衰させる
+      gain.gain.setValueAtTime(e.vol, t);
+      gain.gain.setValueAtTime(e.vol, t + e.dur * 0.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + e.dur);
+    }
+    if (e.vibrato) {
+      // のばす音は、鳴り始めから少し遅れて揺らす
+      const lfo = ac.createOscillator();
+      const depth = ac.createGain();
+      lfo.frequency.value = 6;
+      depth.gain.setValueAtTime(0, t);
+      depth.gain.setValueAtTime(e.freq * 0.012, t + 0.15);
+      lfo.connect(depth).connect(osc.frequency);
+      lfo.start(t);
+      lfo.stop(t + e.dur + 0.01);
+    }
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t + e.dur + 0.01);
+  }
+
+  // BGM ごとの進み方。stepSec: 1 ステップの長さ / steps: ループのステップ数 /
+  // startDelay: 流し始めるまでの待ち(釘バットは取得音のファンファーレのあと) /
+  // gain: BGM 全体の音量(通常の BGM は効果音より控えめにする)
+  const SONGS = {
+    bat: {
+      stepSec: () => 60 / BAT_SONG.bpm / 2,
+      steps: () => BAT_SONG.lead.length * 8,
+      startDelay: 0.3,
+      gain: 1,
+      schedule: scheduleBatStep,
+    },
+    // 曲データは js/music.js(DP.music.MAIN_SONG の曲)。曲を差し替えてもここは変えなくてよい
+    main: {
+      stepSec: () => DP.music.STEP_SEC,
+      steps: () => DP.music.TOTAL_STEPS,
+      startDelay: 0.05,
+      gain: 0.75,
+      schedule: (ac, i, t) => {
+        for (const e of DP.music.events(i)) playMusicEvent(ac, e, t);
+      },
+    },
+  };
+
   // 少し先(0.15 秒)までの音を予約しておく。40ms ごとに呼んで続きを足す
   function pump() {
     const ac = ctx;
     if (!ac || !music.name) return;
-    const eighth = 60 / BAT_SONG.bpm / 2;
+    const song = SONGS[music.name];
+    const dt = song.stepSec();
+    // タブが裏に回ってタイマーが遅れたときは、過ぎてしまった音をまとめて鳴らさず、今の時刻から続ける
+    if (music.nextTime < ac.currentTime - 0.05) {
+      const behind = Math.ceil((ac.currentTime - music.nextTime) / dt);
+      music.nextTime += behind * dt;
+      music.step = (music.step + behind) % song.steps();
+    }
     while (music.nextTime < ac.currentTime + 0.15) {
-      scheduleStep(ac, music.step, music.nextTime);
-      music.nextTime += eighth;
-      music.step = (music.step + 1) % (BAT_SONG.lead.length * 8);
+      if (onMusicStep) onMusicStep(music.name, music.step, music.nextTime);
+      song.schedule(ac, music.step, music.nextTime);
+      music.nextTime += dt;
+      music.step = (music.step + 1) % song.steps();
     }
   }
 
   function startMusic(name) {
     const ac = ensure();
-    if (!ac) return;
+    if (!ac || !SONGS[name]) return;
     if (ac.state === 'suspended') ac.resume();
     music.name = name;
+    // music.bus(ダッキング用)→ music.out(曲ごとの音量)→ スピーカー
+    music.out = ac.createGain();
+    music.out.gain.value = SONGS[name].gain;
+    music.out.connect(ac.destination);
     music.bus = ac.createGain();
-    music.bus.connect(ac.destination);
+    music.bus.connect(music.out);
+    music.active++;
     music.step = 0;
     music.duckUntil = 0;
-    music.nextTime = ac.currentTime + 0.3; // 取得音のファンファーレが終わってから始める
+    music.nextTime = ac.currentTime + SONGS[name].startDelay;
     pump();
     music.timer = setInterval(pump, 40);
   }
@@ -274,12 +410,14 @@ DP.audio = (function () {
     music.timer = null;
     // 予約済みの音も含めて、BGM 用の出力ごと切り離して即座に消す
     try {
-      music.bus.disconnect();
+      music.out.disconnect();
     } catch (e) {
       /* 切り離し済み */
     }
     music.bus = null;
+    music.out = null;
     music.name = null;
+    music.active--;
   }
 
   // 効果音を目立たせるため、dur 秒だけ BGM の音量を下げてから元に戻す(ダッキング)
@@ -359,6 +497,11 @@ DP.audio = (function () {
     currentMusic: () => music.name,
     // BGM を下げている最中か(テスト用)
     isMusicDucked: () => !!(music.name && ctx && ctx.currentTime < music.duckUntil),
+    // テスト用: 鳴らしている BGM の数 / AudioContext の状態 / BGM の 1 ステップごとの通知
+    activeMusicCount: () => music.active,
+    contextState: () => (ctx ? ctx.state : 'none'),
+    _setOnMusicStep: (fn) => { onMusicStep = fn; },
+    _seekMusic: (step) => { music.step = step; }, // テスト用: 流れている BGM の次に予約するステップを変える
     _setOnPlay: (fn) => { onPlay = fn; },
   };
 })();

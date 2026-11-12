@@ -202,5 +202,16 @@ DP.player = (function () {
     return ev;
   }
 
-  return { create, update, hitbox, batPhase, batHitbox };
+  // 足場ごと横に運ぶ(ベルトコンベア)。端から外へ出たら落ちはじめる。
+  // 自分で歩いたわけではないので、歩きアニメ・足音には関係しない
+  function carry(p, dx) {
+    if (p.state !== 'ground' || !p.girder) return;
+    const g = p.girder;
+    const ok = phys.moveOnGirder(p, g, dx);
+    clampToScreen(p);
+    if (!ok && !geo.containsX(g, p.x)) startFalling(p, dx);
+    else p.y = geo.surfaceY(g, p.x);
+  }
+
+  return { create, update, hitbox, batPhase, batHitbox, carry };
 })();

@@ -327,12 +327,14 @@ test('9. ハシゴを登って最上段のガールに触れるとクリア(Oi! 
   expect(s.state).toBe('clear');
   expect(s.message).toBe('Oi! Oi! Oi!');
 
-  // 演出のあと ENTER で次の周回(今は 1 面のみなので 1 面に戻り、R2 になる)
+  // 演出のあと ENTER で次の面(2 面)へ進む。周回数はそのまま(2 面をクリアすると 1 面に戻って R2)
   s = await step(page, 160);
   await page.keyboard.press('Enter');
   s = await step(page, 1);
   expect(s.state).toBe('ready');
-  expect(s.round).toBe(2);
+  expect(s.message).toBe('STAGE 2');
+  expect(s.stageId).toBe('livehouse');
+  expect(s.round).toBe(1);
 });
 
 test('10. 通常プレイ(テスト補助なし)でコンソールエラーが出ず、補助も公開されない', async ({ page }) => {
@@ -680,7 +682,7 @@ const music = (page) => page.evaluate(() => window.__dp.music());
 
 test('25. 釘バットを拾うと BGM が流れ、使用中は足音が鳴らず、破壊音は BGM と同時に鳴る', async ({ page }) => {
   const start = await startGame(page);
-  expect(await music(page)).toBe(null);
+  expect(await music(page)).toBe('main'); // 拾う前は通常の BGM
   // 真下でジャンプして拾う
   await page.evaluate((x) => { window.__dp.placePlayer('g2', x); window.__dp.setFacing(-1); window.__dp.clearSounds(); }, start.items[0].x);
   await page.keyboard.press('Space');
@@ -711,7 +713,7 @@ test('25. 釘バットを拾うと BGM が流れ、使用中は足音が鳴ら�
   expect(await music(page)).toBe('bat');
 });
 
-test('26. 残り 3 秒の警告音は BGM 中も鳴り、時間切れで BGM が止まって足音が戻る', async ({ page }) => {
+test('26. 残り 3 秒の警告音は BGM 中も鳴り、時間切れで通常の BGM に戻って足音が戻る', async ({ page }) => {
   await startGame(page);
   await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.setBat(200); window.__dp.clearSounds(); });
   let s = await step(page, 100);
@@ -719,7 +721,7 @@ test('26. 残り 3 秒の警告音は BGM 中も鳴り、時間切れで BGM が
   expect(await page.evaluate(() => window.__dp.sounds())).toContain('batTick');
   s = await step(page, 100);
   expect(s.player.bat).toBe(0);
-  expect(await music(page)).toBe(null);
+  expect(await music(page)).toBe('main');
   const sounds = await page.evaluate(() => window.__dp.sounds());
   expect(sounds[sounds.length - 1]).toBe('batEnd');
 
@@ -754,7 +756,7 @@ test('27. ミスしたときとクリアしたとき(逃走演出の開始時)�
   expect(await music(page)).toBe(null);
 });
 
-test('28. M キーで音を OFF にすると BGM も止まり、ON に戻すと使用時間内なら再開する', async ({ page }) => {
+test('28. M キーで音を OFF にすると BGM も止まり、ON に戻すと使用時間内なら釘バットの BGM を再開する', async ({ page }) => {
   await startGame(page);
   await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.setBat(300); });
   await step(page, 1);
@@ -771,14 +773,15 @@ test('28. M キーで音を OFF にすると BGM も止まり、ON に戻すと�
   expect(s.player.bat).toBeGreaterThan(0);
   expect(await music(page)).toBe('bat');
 
-  // OFF のまま時間切れになったら、ON に戻しても流れない
+  // OFF のまま時間切れになったら、ON に戻すと釘バットではなく通常の BGM が流れる
   await page.keyboard.press('m');
   await step(page, 1);
   s = await step(page, 300);
   expect(s.player.bat).toBe(0);
+  expect(await music(page)).toBe(null);
   await page.keyboard.press('m');
   await step(page, 1);
-  expect(await music(page)).toBe(null);
+  expect(await music(page)).toBe('main');
 });
 
 test('29. 破壊音「ビュイ～ン」は得点表示と同じステップで鳴り、その間 BGM の音量を下げる(BGM は止めない)', async ({ page }) => {
@@ -1012,7 +1015,7 @@ test('35. クリアするとゴリラ警官がガールのところへ歩き、�
   expect(sounds).toContain('scream');
   expect(sounds[sounds.length - 1]).toBe('clear');
 
-  // ENTER で次の周回に進むと、2 人とも元の位置に戻る
+  // ENTER で次の面(2 面)に進むと、2 人とも元の位置(2 面でも同じ位置)に戻る
   s = await step(page, 160);
   await page.keyboard.press('Enter');
   s = await step(page, 1);

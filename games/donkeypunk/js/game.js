@@ -23,6 +23,8 @@ DP.createGame = function () {
     boss: null,
     heroine: null,
     hazards: [],
+    enemies: [], // 敵(2 面のファイヤースカルなど)。動きは仕掛け、当たり判定と撃破はここで共通に行う
+    skullsEnabled: true, // テスト用にファイヤースカルの出現を止められるようにしている
     escape: null, // クリア後の逃走演出(DP.escape)。演出中だけ使う
     items: [], // 鉄骨の上に置かれたアイテム(釘バット)
     effects: [], // ビールが割れたときの破片
@@ -81,6 +83,7 @@ DP.createGame = function () {
     g.boss.enabled = prevEnabled;
     g.heroine = DP.enemies.createHeroine(g.level);
     g.hazards = [];
+    g.enemies = [];
     // アイテムはステージのデータから毎回置き直す(ミスすると元の場所に戻る)。
     // 鉄骨から少し浮かせて置き、y はアイテムの下端
     g.items = (stage.items || []).map((it) => {
@@ -95,11 +98,12 @@ DP.createGame = function () {
     setState('ready', stage.name);
   }
 
-  function newGame() {
+  // stageIndex: 始める面(0 = 1 面)。通常は 0。開発用ショートカットだけが別の面を指定する
+  function newGame(stageIndex) {
     g.score = 0;
     g.lives = C.lives;
     g.round = 1;
-    g.stageIndex = 0;
+    g.stageIndex = stageIndex || 0;
     g.boss = null;
     setupStage();
     DP.audio.play('start');
@@ -115,6 +119,14 @@ DP.createGame = function () {
     setupStage();
   }
 
+  // ミスの演出の長さ(ステップ数)
+  function dyingFrames(reason) {
+    const by = C.timing.dyingByReason || {};
+    return by[reason] || C.timing.dying;
+  }
+
+  // 主人公をミスにする。reason: 'fall' | 'hazard' | 'boss' | 'burn'(炎上。爆音アンプ・将来のファイヤースカル)。
+  // すでにミスしているときは何もしない(残機が二重に減らない)
   function killPlayer(reason) {
     if (g.player.state === 'dead') return;
     g.player.state = 'dead';
@@ -176,6 +188,16 @@ DP.createGame = function () {
       DP.audio.play('smash');
     }
     g.hazards = g.hazards.filter((h) => !h.dead);
+    // 敵(ファイヤースカル)も釘バットで倒せる。ドクロが砕けて炎が消える演出(effects の type: 'skull')
+    for (const e of g.enemies) {
+      if (e.state === 'emerge' || e.state === 'spawn') continue; // まだ炎の中(姿を現していない)
+      if (e.dead || !geo.overlaps(bb, DP.skulls.hitbox(e))) continue;
+      e.dead = true;
+      g.effects.push({ x: e.x, y: e.y - 8, t: 0, type: e.type });
+      addScore(C.score.skull, e.x, e.y - 24);
+      DP.audio.play('smash');
+    }
+    g.enemies = g.enemies.filter((e) => !e.dead);
   }
 
   // クリア後の逃走演出を始める。通常プレイの処理はここで止める
@@ -183,6 +205,7 @@ DP.createGame = function () {
   function startEscape() {
     const p = g.player;
     g.hazards = []; // 残っているビールは片付ける
+    g.enemies = []; // 敵も片付ける
     p.bat = 0; // 釘バットは手放す(BGM は updateMusic の条件から外れて止まる)
     p.batTime = 0;
     p.walkTime = 0;
@@ -206,6 +229,21 @@ DP.createGame = function () {
     }
   }
 
+  // ステージデータの mechanics に書かれた仕掛けを順に動かす(js/mechanics.js)
+  const mechanicsCtx = {
+    g,
+    rng: () => rng(),
+    spawnHazard: (type, girderId, x) => spawnHazard(type, girderId, x),
+    audio: DP.audio,
+    killPlayer: (reason) => killPlayer(reason),
+  };
+  function updateMechanics() {
+    const names = g.level.stage.mechanics || [];
+    for (const name of names) DP.mechanics[name].update(mechanicsCtx);
+    // ゴリラを動かす仕掛けがない面でも、待機アニメ(ときどき腕を上げる)は進める
+    if (!names.includes('beerThrow')) DP.enemies.idleBoss(g.boss);
+  }
+
   // プレイ中の 1 ステップ
   function updatePlaying(input) {
     const p = g.player;
@@ -220,12 +258,9 @@ DP.createGame = function () {
 
     updateBat(p);
 
-    // ゴリラ警官がビールを投下
-    const bev = DP.enemies.updateBoss(g.boss, g.level, () => rng());
-    if (bev.spawn) {
-      spawnHazard(bev.spawn, g.boss.girder.id, g.boss.throwX);
-      DP.audio.play('throw');
-    }
+    // ステージごとの仕掛け(1 面はゴリラ警官のビール投下、2 面はコンベアと爆音アンプ)
+    updateMechanics();
+    if (g.state !== 'playing') return; // 仕掛けでミスになった(アンプで炎上など)
 
     // 障害物を動かす
     for (const h of g.hazards) DP.hazards.update(h, g.level, () => rng(), p);
@@ -238,7 +273,16 @@ DP.createGame = function () {
     const pb = DP.player.hitbox(p);
     for (const h of g.hazards) {
       if (geo.overlaps(pb, DP.hazards.hitbox(h))) {
-        killPlayer('hazard');
+        // burns の付いた障害物(将来のファイヤースカルなど)は炎上のミス
+        killPlayer(h.burns ? 'burn' : 'hazard');
+        return;
+      }
+    }
+    // 敵(ファイヤースカル)。出現・飛び出しの間は当たらない。burns なら炎上のミス
+    for (const e of g.enemies) {
+      if (DP.skulls.isHarmless(e)) continue;
+      if (geo.overlaps(pb, DP.skulls.hitbox(e))) {
+        killPlayer(e.burns ? 'burn' : 'hazard');
         return;
       }
     }
@@ -272,13 +316,16 @@ DP.createGame = function () {
     }
   }
 
-  // BGM: プレイ中に釘バットを持っている間だけ流す。
-  // 時間切れ・ミス(dying)・クリア・ゲームオーバーでは条件から外れて止まる。
-  // 音 OFF の間は audio 側で流さず、ON に戻したときまだ持っていれば再開する
+  // BGM: ゲーム開始(各面・ミス後の READY)から通常の BGM('main'。全ステージ・全周回で共通の 1 曲)をループで流し、
+  // 釘バットを持っている間は釘バットの BGM('bat')を優先する。釘バットの時間切れで通常の BGM に戻る(頭から)。
+  // ミス(dying。ミスのジングルを聞かせる)・クリア(逃走演出の音とクリアジングル)・ゲームオーバー・タイトルでは止める。
+  // 面が変わるときは逃走演出で一度止まり、次の面の READY で頭から流し直すので、2 曲が重なることはない。
+  // 音 OFF の間は audio 側で流さず、ON に戻すと今の状態の BGM を再開する
   function updateMusic() {
     const p = g.player;
-    const armed = g.state === 'playing' && p && p.bat > 0 && p.state !== 'dead';
-    DP.audio.setMusic(armed ? 'bat' : null);
+    if (g.state === 'ready') return DP.audio.setMusic('main');
+    if (g.state !== 'playing' || !p || p.state === 'dead') return DP.audio.setMusic(null);
+    DP.audio.setMusic(p.bat > 0 ? 'bat' : 'main');
   }
 
   // 1 ステップ(1/60 秒)分の更新
@@ -307,7 +354,9 @@ DP.createGame = function () {
         updateEscape();
         break;
       case 'dying':
-        if (g.timer >= C.timing.dying) {
+        // ミスの演出の長さは理由ごと(炎上は約 1 秒、それ以外は従来どおり)。
+        // 終わったら 1 回だけ残機を減らす(この状態の間に主人公がもう一度ミスになることはない)
+        if (g.timer >= dyingFrames(g.deathReason)) {
           g.lives--;
           if (g.lives <= 0) {
             g.lives = 0;
@@ -339,6 +388,12 @@ DP.createGame = function () {
     _setRng: (fn) => { rng = fn; },
     _killPlayer: killPlayer,
     // 開発用ショートカット(dev-tools.js)から: プレイ中ならクリアしたことにして逃走演出を始める
+    // 開発用ショートカット / テスト補助から: 指定の面(0 始まり)から新しいゲームを始める
+    _startStage: (index) => {
+      if (index < 0 || index >= DP.stages.length) return false;
+      newGame(index);
+      return true;
+    },
     _devClear: () => {
       if (g.state !== 'playing') return false;
       addScore(C.score.clearBase * g.round + g.bonus);

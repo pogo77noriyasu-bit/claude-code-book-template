@@ -30,6 +30,7 @@ DP.hazards = (function () {
       spin: 0, // 転がりアニメ用
       checkedLadders: new Set(), // 降りるかどうか判定済みのハシゴ
       jumpedOver: false, // プレイヤーに飛び越えられたか(得点は 1 回だけ)
+      burns: false, // 触れると炎上のミスになるか(将来のファイヤースカルなど)
       dead: false,
     };
   }
