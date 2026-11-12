@@ -81,6 +81,20 @@ DP.createRenderer = function (canvas) {
     ctx.fillRect(l.x + 7, stubBottom, 2, 2);
   }
 
+  // ゴリラの逃走用ハシゴ(2 本)。g5 の上面から画面の最上部まで。飾りなのでつかめない
+  function drawEscapeLadders(level) {
+    const s = level.stage.escape;
+    if (!s) return;
+    const g5 = level.byId[level.stage.boss.girder];
+    ctx.fillStyle = '#3cd8ff';
+    for (const x of s.ladders) {
+      const bottom = Math.round(geo.surfaceY(g5, x));
+      ctx.fillRect(x - 8, 0, 2, bottom);
+      ctx.fillRect(x + 6, 0, 2, bottom);
+      for (let y = bottom - 6; y > 0; y -= 8) ctx.fillRect(x - 8, y, 16, 2);
+    }
+  }
+
   // 鉄骨は 16px ごとの段々で描く(ドット絵らしい斜め)
   function drawGirder(g) {
     const T = C.GIRDER_THICKNESS;
@@ -199,6 +213,44 @@ DP.createRenderer = function (canvas) {
     }
   }
 
+  // 横倒しにしたスプライトを (cx, cy) を中心に描く(担がれているガール用)。頭が右を向く
+  function drawSideways(name, cx, cy, flip) {
+    ctx.save();
+    ctx.translate(Math.round(cx), Math.round(cy));
+    ctx.rotate(Math.PI / 2);
+    const s = spr.DATA[name];
+    spr.draw(ctx, name, 0, (s.h * C.PIXEL) / 2, { flip });
+    ctx.restore();
+  }
+
+  // クリア後の逃走演出(ゴリラ警官とガール)
+  function drawEscape(e) {
+    const kick = 'girlKick' + (Math.floor(e.total / 6) % 2); // ジタバタは 6 ステップごと
+    if (e.phase === 'walk') {
+      spr.draw(ctx, 'bossWalk' + e.walkFrame, e.bossX, e.bossY + 1);
+      // ガールは近づいてくるゴリラに気づいて手を振る
+      const wave = Math.floor(e.total / 12) % 2 === 0;
+      spr.draw(ctx, wave ? 'girlWave' : 'girl', e.girlX, e.girlY + 1, { flip: true });
+    } else if (e.phase === 'reach') {
+      // 腕を振り上げたゴリラ。ガールは足場の端へ引き寄せられながらジタバタ
+      spr.draw(ctx, 'bossUp', e.bossX, e.bossY + 1);
+      spr.draw(ctx, kick, e.girlX, e.girlY + 1, { flip: true });
+    } else if (e.phase === 'lift' || e.phase === 'struggle') {
+      // 担いだまま、その場で足踏み(勝ちほこる)
+      const stomp = e.phase === 'struggle' ? 'bossCarryWalk' + (Math.floor(e.t / 8) % 2) : 'bossCarry';
+      spr.draw(ctx, stomp, e.bossX, e.bossY + 1);
+      drawSideways(kick, e.girlX, e.girlY);
+    } else if (e.phase === 'carry') {
+      spr.draw(ctx, 'bossCarryWalk' + e.walkFrame, e.bossX, e.bossY + 1);
+      drawSideways(kick, e.girlX, e.girlY);
+    } else if (e.phase === 'climb') {
+      // 背中向きで、左右の手を交互に 2 本のハシゴへかける(左右反転で 2 コマ)。
+      // ガールを先に描き、振り上げた腕がガールの手前に来るようにする(腕で押さえて見える)
+      drawSideways(kick, e.girlX, e.girlY);
+      spr.draw(ctx, 'bossClimb', e.bossX, e.bossY + 1, { flip: e.walkFrame === 1 });
+    }
+  }
+
   function drawBoss(b) {
     const up = b.state === 'grab' || (b.state === 'idle' && Math.floor(b.anim / 20) % 6 === 0);
     spr.draw(ctx, up ? 'bossUp' : 'boss', b.x, b.y + 1);
@@ -300,10 +352,16 @@ DP.createRenderer = function (canvas) {
     drawBackground(g.frame);
 
     if (g.level) {
+      drawEscapeLadders(g.level);
       for (const l of g.level.ladders) drawLadder(l);
       for (const gd of g.level.girders) drawGirder(gd);
-      drawHeroine(g.heroine, g.frame, g.state);
-      drawBoss(g.boss);
+      if (g.state === 'escape' && g.escape) {
+        drawEscape(g.escape);
+      } else {
+        // 逃走演出のあと(クリア表示中)は 2 人とも画面の外へ消えている
+        if (!g.heroine.gone) drawHeroine(g.heroine, g.frame, g.state);
+        if (!g.boss.gone) drawBoss(g.boss);
+      }
       drawItems(g.items, g.frame);
       for (const h of g.hazards) drawHazard(h);
       drawPlayer(g.player, g.frame, g.state, g.timer);
@@ -312,6 +370,8 @@ DP.createRenderer = function (canvas) {
       drawPopups(g);
     }
     drawHud(g);
+    // 開発用ショートカットが有効なときだけ、画面の下に目印を出す
+    if (g.devMode) text('DEV  C:クリア演出', 8, C.HEIGHT - 16, { size: 10, ja: true, color: '#ffd23c' });
 
     const cx = C.WIDTH / 2;
     if (g.state === 'title') {
@@ -322,7 +382,8 @@ DP.createRenderer = function (canvas) {
     } else if (g.state === 'clear') {
       // クリア演出: 「Oi! Oi! Oi!」とハート
       const h = g.heroine;
-      spr.draw(ctx, 'heart', h.x + 20, h.y - 36 - Math.sin(g.frame / 8) * 3, { scale: 3 });
+      // ハートはガールがいるときだけ(さらわれた後は出さない)
+      if (!h.gone) spr.draw(ctx, 'heart', h.x + 20, h.y - 36 - Math.sin(g.frame / 8) * 3, { scale: 3 });
       overlay(0.35);
       const bump = Math.floor(g.timer / 20) % 2 === 0 ? 0 : 4;
       text('Oi! Oi! Oi!', cx, 236 - bump, { size: 28, align: 'center', color: '#ffd23c', shadow: '#ff2f6e' });

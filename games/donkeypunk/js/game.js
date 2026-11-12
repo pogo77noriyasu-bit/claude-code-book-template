@@ -1,5 +1,5 @@
 // ゲーム全体の進行(状態遷移・スコア・残機・当たり判定のまとめ)
-// 状態: 'title' | 'ready' | 'playing' | 'dying' | 'clear' | 'gameover'
+// 状態: 'title' | 'ready' | 'playing' | 'escape'(クリア後の逃走演出) | 'clear' | 'dying' | 'gameover'
 window.DP = window.DP || {};
 
 DP.createGame = function () {
@@ -23,6 +23,7 @@ DP.createGame = function () {
     boss: null,
     heroine: null,
     hazards: [],
+    escape: null, // クリア後の逃走演出(DP.escape)。演出中だけ使う
     items: [], // 鉄骨の上に置かれたアイテム(釘バット)
     effects: [], // ビールが割れたときの破片
     popups: [], // 得点表示などの浮かぶ文字
@@ -88,6 +89,7 @@ DP.createGame = function () {
     });
     g.effects = [];
     g.popups = [];
+    g.escape = null;
     g.bonus = C.score.bonusStart;
     g.deathReason = null;
     setState('ready', stage.name);
@@ -176,6 +178,34 @@ DP.createGame = function () {
     g.hazards = g.hazards.filter((h) => !h.dead);
   }
 
+  // クリア後の逃走演出を始める。通常プレイの処理はここで止める
+  // (演出中は updatePlaying を呼ばないので、操作・障害物・当たり判定・ボーナス減少も止まる)
+  function startEscape() {
+    const p = g.player;
+    g.hazards = []; // 残っているビールは片付ける
+    p.bat = 0; // 釘バットは手放す(BGM は updateMusic の条件から外れて止まる)
+    p.batTime = 0;
+    p.walkTime = 0;
+    g.boss.state = 'idle';
+    g.boss.holding = null;
+    g.escape = DP.escape.create(g.level, g.boss, g.heroine);
+    setState('escape');
+    // BGM はその場で止める(開発用ショートカットのように update の外から呼ばれても止まるように)
+    updateMusic();
+  }
+
+  function updateEscape() {
+    const done = DP.escape.update(g.escape);
+    if (g.escape.sound) DP.audio.play(g.escape.sound, g.escape.soundArg);
+    if (done) {
+      // 2 人とも画面の上へ消えた。いつものクリア表示へ
+      g.boss.gone = true;
+      g.heroine.gone = true;
+      setState('clear', 'Oi! Oi! Oi!');
+      DP.audio.play('clear');
+    }
+  }
+
   // プレイ中の 1 ステップ
   function updatePlaying(input) {
     const p = g.player;
@@ -235,11 +265,10 @@ DP.createGame = function () {
       g.bonus = Math.max(0, g.bonus - C.score.bonusStep);
     }
 
-    // ヒロインに触れたらクリア
+    // ヒロインに触れたらクリア。得点を足して、逃走演出へ
     if (geo.overlaps(pb, DP.enemies.heroineHitbox(g.heroine))) {
       addScore(C.score.clearBase * g.round + g.bonus);
-      setState('clear', 'Oi! Oi! Oi!');
-      DP.audio.play('clear');
+      startEscape();
     }
   }
 
@@ -274,6 +303,9 @@ DP.createGame = function () {
       case 'playing':
         updatePlaying(input);
         break;
+      case 'escape':
+        updateEscape();
+        break;
       case 'dying':
         if (g.timer >= C.timing.dying) {
           g.lives--;
@@ -306,6 +338,13 @@ DP.createGame = function () {
     _spawnHazard: spawnHazard,
     _setRng: (fn) => { rng = fn; },
     _killPlayer: killPlayer,
+    // 開発用ショートカット(dev-tools.js)から: プレイ中ならクリアしたことにして逃走演出を始める
+    _devClear: () => {
+      if (g.state !== 'playing') return false;
+      addScore(C.score.clearBase * g.round + g.bonus);
+      startEscape();
+      return true;
+    },
     _itemHitbox: itemHitbox,
   };
 };

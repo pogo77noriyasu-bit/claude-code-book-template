@@ -318,9 +318,12 @@ test('9. ハシゴを登って最上段のガールに触れるとクリア(Oi! 
   }
   const scoreBefore = s.score;
   s = await walkTo(page, 200);
+  // ガールに触れると、まずゴリラ警官の逃走演出(テスト 35)。終わるとクリア表示
+  expect(s.state).toBe('escape');
+  expect(s.score).toBeGreaterThan(scoreBefore);
+  for (let i = 0; i < 900 && s.state === 'escape'; i++) s = await step(page, 1);
   expect(s.state).toBe('clear');
   expect(s.message).toBe('Oi! Oi! Oi!');
-  expect(s.score).toBeGreaterThan(scoreBefore);
 
   // 演出のあと ENTER で次の周回(今は 1 面のみなので 1 面に戻り、R2 になる)
   s = await step(page, 160);
@@ -722,7 +725,7 @@ test('26. 残り 3 秒の警告音は BGM 中も鳴り、時間切れで BGM が
   expect((await footsteps(page)).length).toBeGreaterThan(0);
 });
 
-test('27. ミスしたときとクリアしたときは BGM が止まる', async ({ page }) => {
+test('27. ミスしたときとクリアしたとき(逃走演出の開始時)は BGM が止まる', async ({ page }) => {
   await startGame(page);
   // ミス(高いところから落ちる)
   await page.evaluate(() => { window.__dp.setBat(600); });
@@ -744,7 +747,7 @@ test('27. ミスしたときとクリアしたときは BGM が止まる', async
   expect(await music(page)).toBe('bat');
   await page.evaluate(() => window.__dp.placePlayer('top', 205));
   s = await step(page, 2);
-  expect(s.state).toBe('clear');
+  expect(s.state).toBe('escape'); // クリア後の逃走演出に入った時点で止まる
   expect(await music(page)).toBe(null);
 });
 
@@ -900,4 +903,280 @@ test('33. 障害物は切れたハシゴも降りられるが、行き止まり�
   expect(r.s.state).toBe('playing');
   expect(r.s.lives).toBe(start.lives);
   expect(r.s.player.ladder).toBe(l.index);
+});
+
+// ---- 画面上部の逃走用ハシゴと、クリア後の逃走演出 ----
+
+// 最上段でガールに触れてクリアする(逃走演出が始まったところで返す)
+async function touchGirl(page) {
+  await page.evaluate(() => { window.__dp.placePlayer('top', 240); });
+  await step(page, 1);
+  await page.evaluate(() => window.__dp.placePlayer('top', 205));
+  const s = await step(page, 1);
+  expect(s.state).toBe('escape');
+  return s;
+}
+
+test('34. ゴリラ警官とガールの間に、画面最上部まで続く 2 本のハシゴが最初から表示され、プレイヤーは登れない', async ({ page }) => {
+  const s = await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  expect(lv.escapeLadders).toEqual([120, 152]);
+  for (const x of lv.escapeLadders) {
+    expect(x).toBeGreaterThan(s.boss.x);
+    expect(x).toBeLessThan(s.heroine.x);
+    expect(lv.ladders.some((l) => l.x === x)).toBe(false); // 通常のハシゴには入っていない
+  }
+  // ゴリラ・ガールの位置は今までどおり
+  expect(s.boss.x).toBe(56);
+  expect(s.heroine.x).toBe(210);
+
+  // 画面に描かれている(支柱の色を、最上部と g5 のすぐ上で調べる)
+  await page.waitForTimeout(100); // 描画は requestAnimationFrame なので 1 コマ待つ
+  const colors = await page.evaluate((xs) => {
+    const ctx = document.getElementById('game').getContext('2d');
+    const out = [];
+    for (const x of xs) for (const y of [2, 130]) {
+      const d = ctx.getImageData(x - 7, y, 1, 1).data;
+      out.push([d[0], d[1], d[2]]);
+    }
+    return out;
+  }, lv.escapeLadders);
+  for (const c of colors) expect(c).toEqual([60, 216, 255]); // #3cd8ff
+
+  // プレイヤーは g5 から登れない
+  for (const x of lv.escapeLadders) {
+    await page.evaluate((px) => window.__dp.placePlayer('g5', px), x);
+    const r = await hold(page, 'ArrowUp', 30);
+    expect(r.player.state).toBe('ground');
+    expect(r.player.girder).toBe('g5');
+  }
+});
+
+test('35. クリアするとゴリラ警官がガールのところへ歩き、担いで 2 本のハシゴを登って消え、クリア表示へ移る', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.setBat(600); window.__dp.spawnHazard('can', 'g0', 300); });
+  await step(page, 1);
+  expect(await music(page)).toBe('bat');
+  await page.evaluate(() => window.__dp.clearSounds());
+  let s = await touchGirl(page);
+  // 通常プレイの音・障害物・釘バットは止まる
+  expect(s.hazards).toEqual([]);
+  expect(s.player.bat).toBe(0);
+  expect(await music(page)).toBe(null);
+
+  const phases = [];
+  const startX = s.escape.bossX;
+  let walkMaxX = startX;
+  let carryOk = true;
+  let climb = { frames: new Set(), xs: new Set(), firstY: null, lastY: null };
+  for (let i = 0; i < 900 && s.state === 'escape'; i++) {
+    s = await step(page, 1);
+    if (s.state !== 'escape') break;
+    const e = s.escape;
+    if (phases[phases.length - 1] !== e.phase) phases.push(e.phase);
+    if (e.phase === 'walk') walkMaxX = Math.max(walkMaxX, e.bossX);
+    // 担いでいる間、ガールはゴリラの頭の上(肩の上)にいる
+    if (['struggle', 'carry', 'climb'].includes(e.phase)) {
+      if (!e.carrying || Math.abs(e.girlX - e.bossX) > 24 || e.girlY > e.bossY - 40) carryOk = false;
+    }
+    if (e.phase === 'climb') {
+      climb.frames.add(e.walkFrame);
+      climb.xs.add(e.bossX);
+      if (climb.firstY === null) climb.firstY = e.bossY;
+      climb.lastY = e.bossY;
+    }
+    // 演出中は死なない
+    expect(s.player.state).not.toBe('dead');
+  }
+  // 段階が順番どおり
+  expect(phases).toEqual(['walk', 'reach', 'lift', 'struggle', 'carry', 'climb', 'done'].filter((p) => p !== 'done'));
+  // ガールの方へ歩いた
+  expect(walkMaxX).toBeGreaterThan(startX + 80);
+  expect(carryOk).toBe(true);
+  // 2 本のハシゴの真ん中で、手を交互に動かして登った
+  expect([...climb.xs]).toEqual([136]);
+  expect([...climb.frames].sort()).toEqual([0, 1]);
+  expect(climb.firstY).toBeGreaterThan(140);
+  expect(climb.lastY).toBeLessThan(0); // 画面の上へ消えた
+
+  // 演出が終わるとクリア表示。2 人はもういない
+  expect(s.state).toBe('clear');
+  expect(s.message).toBe('Oi! Oi! Oi!');
+  expect(s.boss.gone).toBe(true);
+  expect(s.heroine.gone).toBe(true);
+  const sounds = await page.evaluate(() => window.__dp.sounds());
+  expect(sounds).toContain('bossStep');
+  expect(sounds).toContain('scream');
+  expect(sounds[sounds.length - 1]).toBe('clear');
+
+  // ENTER で次の周回に進むと、2 人とも元の位置に戻る
+  s = await step(page, 160);
+  await page.keyboard.press('Enter');
+  s = await step(page, 1);
+  expect(s.state).toBe('ready');
+  expect(s.boss.gone).toBe(false);
+  expect(s.heroine.gone).toBe(false);
+  expect(s.boss.x).toBe(56);
+});
+
+test('36. 逃走演出中はプレイヤーの操作を受け付けず、障害物も動かず、当たってもミスにならない', async ({ page }) => {
+  await startGame(page);
+  let s = await touchGirl(page);
+  const p0 = s.player;
+  await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.setBossEnabled(true);
+    // あえてプレイヤーと重なる位置に缶を置く
+    dp.spawnHazard('can', 'top', dp.snapshot().player.x);
+  });
+  const h0 = (await snap(page)).hazards[0];
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    s = await hold(page, key, 15);
+  }
+  await page.keyboard.press('Space');
+  s = await step(page, 30);
+  expect(s.state).toBe('escape');
+  expect(s.player.x).toBe(p0.x);
+  expect(s.player.y).toBe(p0.y);
+  expect(s.player.state).toBe('ground');
+  expect(s.hazards.length).toBe(1); // ゴリラが新しく投げることもない
+  expect(s.hazards[0].x).toBe(h0.x);
+  expect(s.hazards[0].y).toBe(h0.y);
+  expect(s.lives).toBe(3);
+});
+
+// ---- 逃走演出の音と、開発用ショートカット ----
+
+// Web Audio で実際に作られた発振器・音源の数を数えるため、ページを開く前に差し込む
+async function countAudioNodes(page) {
+  await page.addInitScript(() => {
+    window.__audioNodes = 0;
+    for (const m of ['createOscillator', 'createBufferSource']) {
+      const orig = BaseAudioContext.prototype[m];
+      BaseAudioContext.prototype[m] = function () { window.__audioNodes++; return orig.call(this); };
+    }
+  });
+}
+const audioNodes = (page) => page.evaluate(() => window.__audioNodes);
+
+// ?test&dev で開いてプレイ中まで進める(開発用ショートカットが使える)
+async function startDevGame(page) {
+  await page.goto('./?test&dev');
+  await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
+  await page.evaluate(() => { window.__dp.setManual(true); window.__dp.setSeed(1); });
+  await page.keyboard.press('Enter');
+  await step(page, 1);
+  await page.evaluate(() => window.__dp.setBossEnabled(false));
+  await step(page, 100);
+}
+
+// 逃走演出を最後まで進めながら、段階ごとに「鳴らした音」と「作られた音の部品の数」を集める
+async function runEscape(page) {
+  const byPhase = {};
+  let s = await snap(page);
+  for (let i = 0; i < 900 && s.state === 'escape'; i++) {
+    const before = (await page.evaluate(() => window.__dp.sounds())).length;
+    const nodes0 = await audioNodes(page);
+    s = await step(page, 1);
+    const ph = s.state === 'escape' ? s.escape.phase : s.state;
+    const added = (await page.evaluate(() => window.__dp.sounds())).slice(before);
+    const b = (byPhase[ph] = byPhase[ph] || { sounds: [], nodes: 0 });
+    b.sounds.push(...added);
+    b.nodes += (await audioNodes(page)) - nodes0;
+  }
+  return { byPhase, s };
+}
+
+test('37. 逃走演出中は足音・悲鳴・登る音を鳴らし、終わるとクリアジングル(Web Audio の音も実際に作られる)', async ({ page }) => {
+  await countAudioNodes(page);
+  await startDevGame(page);
+  await page.evaluate(() => window.__dp.setBat(600));
+  await step(page, 1);
+  expect(await music(page)).toBe('bat');
+  await page.evaluate(() => window.__dp.clearSounds());
+
+  await page.keyboard.press('c'); // 開発用ショートカットでクリア演出を開始
+  let s = await snap(page);
+  expect(s.state).toBe('escape');
+  expect(await music(page)).toBe(null); // 釘バットの BGM は止まる
+
+  const { byPhase } = await runEscape(page);
+  const steps = (list) => list.filter((n) => n === 'bossStep' || n === 'bossStep2');
+  // 歩くとき・足踏み・担いで歩くときにドスン(左右の足で 2 種類)
+  expect(steps(byPhase.walk.sounds).length).toBeGreaterThan(5);
+  expect(new Set(steps(byPhase.walk.sounds)).size).toBe(2);
+  expect(steps(byPhase.struggle.sounds).length).toBeGreaterThan(2);
+  expect(steps(byPhase.carry.sounds).length).toBeGreaterThan(0);
+  // 抱き上げるときに悲鳴(1 回だけ)
+  expect(byPhase.lift.sounds).toEqual(['scream']);
+  // 登るときに上昇音を何度も
+  expect(byPhase.climb.sounds.filter((n) => n === 'climb').length).toBeGreaterThan(8);
+  // 終わったらクリアジングル
+  expect(byPhase.clear.sounds).toEqual(['clear']);
+  // どの段階でも、実際に Web Audio の音(発振器・音源)が作られている
+  for (const ph of ['walk', 'lift', 'struggle', 'carry', 'climb', 'clear']) {
+    expect(byPhase[ph].nodes, ph + ' で音が作られていない').toBeGreaterThan(0);
+  }
+});
+
+test('38. M キーで音を OFF にしていると、逃走演出中もクリアジングルも鳴らない', async ({ page }) => {
+  await countAudioNodes(page);
+  await startDevGame(page);
+  await page.keyboard.press('m');
+  await step(page, 1);
+  expect(await page.evaluate(() => window.__dp.soundEnabled())).toBe(false);
+  await page.evaluate(() => window.__dp.clearSounds());
+  const nodes0 = await audioNodes(page);
+
+  await page.keyboard.press('c');
+  const { s } = await runEscape(page);
+  expect(s.state).toBe('clear');
+  expect(await page.evaluate(() => window.__dp.sounds())).toEqual([]);
+  expect(await audioNodes(page)).toBe(nodes0); // 音の部品が 1 つも作られていない
+});
+
+test('39. 開発用ショートカット(C キー)は ?dev を付けた開発環境だけで有効で、公開先では無効', async ({ page }) => {
+  // ?dev なし: C キーを押しても何も起きない
+  await startGame(page);
+  await page.keyboard.press('c');
+  let s = await step(page, 1);
+  expect(s.state).toBe('playing');
+
+  // ?dev あり(127.0.0.1 = 開発環境): C キーでクリア演出が始まり、クリアの得点も入る
+  await startDevGame(page);
+  const before = (await snap(page)).score;
+  // タイトル・READY 中は効かない(プレイ中だけ)
+  await page.keyboard.press('c');
+  s = await snap(page);
+  expect(s.state).toBe('escape');
+  expect(s.score).toBeGreaterThan(before);
+
+  // 判定のしくみ: 公開先(GitHub Pages など)では ?dev を付けても無効
+  const results = await page.evaluate(() => {
+    const f = window.DP.devTools.isDevEnvironment;
+    return {
+      local: f({ protocol: 'http:', hostname: '127.0.0.1', search: '?dev' }),
+      localhost: f({ protocol: 'http:', hostname: 'localhost', search: '?test&dev' }),
+      file: f({ protocol: 'file:', hostname: '', search: '?dev' }),
+      localNoDev: f({ protocol: 'http:', hostname: 'localhost', search: '' }),
+      pages: f({ protocol: 'https:', hostname: 'example.github.io', search: '?dev' }),
+      other: f({ protocol: 'https:', hostname: 'example.com', search: '?dev' }),
+    };
+  });
+  expect(results).toEqual({ local: true, localhost: true, file: true, localNoDev: false, pages: false, other: false });
+});
+
+test('40. 開発用ショートカットはタイトル画面や READY 中には効かない', async ({ page }) => {
+  await page.goto('./?test&dev');
+  await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
+  await page.evaluate(() => window.__dp.setManual(true));
+  await page.keyboard.press('c');
+  let s = await step(page, 1);
+  expect(s.state).toBe('title');
+  await page.keyboard.press('Enter');
+  s = await step(page, 1);
+  expect(s.state).toBe('ready');
+  await page.keyboard.press('c');
+  s = await step(page, 1);
+  expect(s.state).toBe('ready');
 });

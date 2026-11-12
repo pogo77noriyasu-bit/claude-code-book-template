@@ -48,6 +48,10 @@ DP.stages.push({
   playerStart: { x: 40, girder: 'g0', facing: 1 },
   // ゴリラ警官(左上)。throwX はビールを置く位置
   boss: { x: 56, girder: 'g5', throwX: 104 },
+  // クリア後の逃走演出。ladders: ゴリラとガールの間に立つ、g5 から画面の最上部までの 2 本のハシゴの x
+  // (飾り。level.ladders には入れないのでプレイヤーはつかめず、障害物も降りない)。
+  // grabX: ガールを捕まえるときにゴリラが立つ位置 / girlEdgeX: ガールが引き寄せられる足場の端
+  escape: { ladders: [120, 152], grabX: 162, girlEdgeX: 188 },
   // スキンヘッドガール。触れるとクリア
   heroine: { x: 210, girder: 'top' },
   // 投げる間隔(ステップ)。周回が進むと短くなる

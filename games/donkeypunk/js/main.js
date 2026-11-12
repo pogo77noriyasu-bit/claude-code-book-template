@@ -39,4 +39,6 @@ window.DP = window.DP || {};
 
   // テスト補助を有効にする(URL に ?test が付いているときだけ。通常プレイでは何もしない)
   if (DP.installTestHooks) DP.installTestHooks(game, loop, renderer);
+  // 開発用ショートカット(開発環境で ?dev が付いているときだけ。公開先では何もしない)
+  if (DP.devTools) DP.devTools.install(game);
 })();

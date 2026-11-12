@@ -74,6 +74,36 @@ DP.sprites = (function () {
     '..ttttt..',
   ]);
 
+  // 下 4 行(脚)だけを差し替えたスプライトを作る
+  function withLegs(s, legs) {
+    return def(s.rows.slice(0, s.h - legs.length).concat(legs));
+  }
+
+  // 左半分を a、右半分を b から取って合成する(同じ幅にそろえてから)
+  function combine(a, b, w) {
+    const rows = [];
+    for (let y = 0; y < a.h; y++) {
+      const ra = a.rows[y].padEnd(w, '.');
+      const rb = b.rows[y].padEnd(w, '.');
+      rows.push(ra.slice(0, w / 2) + rb.slice(w / 2));
+    }
+    return def(rows);
+  }
+
+  // ゴリラの歩き(脚だけ差し替え)。A: 左足を上げる / B: 右足を上げる
+  const BOSS_LEGS_A = [
+    '....NNNNN.....NNNNN',
+    '...KKKKKK......NNNN',
+    '..KKKKKKK......KKKKK',
+    '...............KKKKKK',
+  ];
+  const BOSS_LEGS_B = [
+    '....NNNNN.....NNNNN',
+    '....NNNN......KKKKKK',
+    '...KKKKK......KKKKKKK',
+    '..KKKKKK..............',
+  ];
+
   // 主人公(右向き)。12x16
   const HEAD = [
     '.....RR.....',
@@ -193,6 +223,38 @@ DP.sprites = (function () {
       '..KKKKKK.......KKKKKK',
     ]),
 
+    // 背中向きのゴリラ警官(逃走用ハシゴを登る)。左手を高く・右手を低く。左右反転でもう 1 コマ
+    // 手のひら(f)が左右のハシゴの外側の支柱にかかる幅(48px)にしている。
+    // 左手は頭より高く振り上げ、右手は肩の高さでつかむ
+    bossClimb: def([
+      'ff......................',
+      'fF......................',
+      'FFF.....................',
+      '.FF.....................',
+      '.FFF....NNNNNNNN........',
+      '..FF..NNNNNNNNNNNN......',
+      '..FFFNNNNNNNNNNNNNN.....',
+      '...FFkkkkkkkkkkkkkk...ff',
+      '...FFFFFFFFFFFFFFFFF.FFf',
+      '....FFFFFFFFFFFFFFFFFFF.',
+      '....FFFFFFFFFFFFFFFFFF..',
+      '....FFFFFFFFFFFFFFFFF...',
+      '....NNNNNNNNNNNNNNNN....',
+      '...NNNNNNNNNNNNNNNNNN...',
+      '..NNNNNNNNNNNNNNNNNNNN..',
+      '..NNNNNNNNNNNNNNNNNNNN..',
+      '..NNNNNNNNNNNNNNNNNNNN..',
+      '...NNNNNNNNNNNNNNNNNN...',
+      '....NNNNKKKKKKKKNNNN....',
+      '....NNNNNNNNNNNNNNNN....',
+      '....NNNNNNNNNNNNNNNN....',
+      '....NNNNN......NNNNN....',
+      '....NNNN........NNNN....',
+      '...KKKKK........NNNN....',
+      '..KKKKKK.......KKKKK....',
+      '...............KKKKKK...',
+    ]),
+
     // スキンヘッドのパンクガール。12x16
     girl: def([
       '....ssss....',
@@ -229,6 +291,44 @@ DP.sprites = (function () {
       '...SS..SS...',
       '..KKK..KKK..',
       '..KKK..KKK..',
+    ]),
+
+    // さらわれてジタバタするガール(2 コマ)。口を開けて叫び、手足をばたつかせる
+    girlKick0: def([
+      '....ssss....',
+      '...SSSSSS...',
+      '..SSSSSSSS..',
+      '..SSKSSKSS..',
+      '.GSSSSSSSSG.',
+      'S..SSKKSS..S',
+      '.S..SSSS..S.',
+      '..SKKKKKKS..',
+      '...KKGGKK...',
+      '...KKKKKK...',
+      '..RrRrRrRr..',
+      '..rRrRrRrR..',
+      '..SS....SS..',
+      '.SS......SS.',
+      'KKK......KKK',
+      'KK........KK',
+    ]),
+    girlKick1: def([
+      '....ssss....',
+      '...SSSSSS...',
+      '..SSSSSSSS..',
+      '..SSKSSKSS..',
+      '.GSSSSSSSSG.',
+      '.G.SSKKSS.G.',
+      '....SSSS....',
+      '.SSKKKKKKSS.',
+      'S..KKGGKK..S',
+      '...KKKKKK...',
+      '..RrRrRrRr..',
+      '..rRrRrRrR..',
+      '....SSSS....',
+      '....SSSS....',
+      '...KKKKKK...',
+      '...KK..KK...',
     ]),
 
     // ビール瓶(横倒し・口が右)。12x6。ラベルの位置を変えて転がって見せる
@@ -270,6 +370,14 @@ DP.sprites = (function () {
     // ハート(クリア演出)
     heart: def(['.RR.RR.', 'RRRRRRR', 'RRRRRRR', '.RRRRR.', '..RRR..', '...R...']),
   };
+
+  // ゴリラの歩き・担ぎ(既存のデザインから作る)
+  DATA.bossWalk0 = withLegs(DATA.boss, BOSS_LEGS_A);
+  DATA.bossWalk1 = withLegs(DATA.boss, BOSS_LEGS_B);
+  // 担ぐ: 左半分は腕を下ろした姿、右半分は腕を上げた姿(右手でガールを肩の上に支える)
+  DATA.bossCarry = combine(DATA.boss, DATA.bossUp, 24);
+  DATA.bossCarryWalk0 = withLegs(DATA.bossCarry, BOSS_LEGS_A);
+  DATA.bossCarryWalk1 = withLegs(DATA.bossCarry, BOSS_LEGS_B);
 
   // 描画を速くするため、スプライトごと(左右反転ごと)にオフスクリーンキャンバスへ焼いておく
   const cache = {};

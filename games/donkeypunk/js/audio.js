@@ -85,6 +85,55 @@ DP.audio = (function () {
     lfo.stop(t + dur + 0.02);
   }
 
+  // 周波数を f0 → f1 へ動かす 1 音(ピッチが動く効果音用)。ビブラートは任意
+  function sweep(f0, f1, dur, type, volume, vib) {
+    const ac = ensure();
+    if (!ac) return;
+    if (ac.state === 'suspended') ac.resume();
+    const t = ac.currentTime;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.setValueAtTime(volume, t + dur * 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gain).connect(ac.destination);
+    if (vib) {
+      const lfo = ac.createOscillator();
+      const depth = ac.createGain();
+      lfo.frequency.setValueAtTime(vib.rate, t);
+      depth.gain.setValueAtTime(vib.depth, t);
+      lfo.connect(depth).connect(osc.frequency);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.02);
+    }
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
+  // 短い雑音(足音の「ザッ」)。8bit 機風に数サンプルずつ同じ値を続けて粗くする
+  function thump(dur, volume) {
+    const ac = ensure();
+    if (!ac) return;
+    const len = Math.floor(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    let v = 0;
+    for (let i = 0; i < len; i++) {
+      if (i % 8 === 0) v = Math.random() * 2 - 1;
+      data[i] = v;
+    }
+    const src = ac.createBufferSource();
+    const gain = ac.createGain();
+    src.buffer = buf;
+    gain.gain.setValueAtTime(volume, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+    src.connect(gain).connect(ac.destination);
+    src.start();
+  }
+
   const SMASH_DUR = 0.5;
 
   const SOUNDS = {
@@ -108,6 +157,25 @@ DP.audio = (function () {
       duckMusic(SMASH_DUR);
     },
     batTick: () => tone([[1319, 0.025]], 'square', 0.02),
+    // ---- クリア後の逃走演出 ----
+    // ゴリラの足音「ドスン」: 倍音の多い矩形波を 180Hz → 60Hz へ急降下させ、雑音を重ねる。
+    // (低い音だけだとノート PC などの小さなスピーカーでは聞こえないので、高めの成分から始める)
+    // 左右の足で少し高さを変える
+    bossStep: () => {
+      sweep(180, 60, 0.09, 'square', 0.07);
+      thump(0.05, 0.05);
+    },
+    bossStep2: () => {
+      sweep(150, 50, 0.09, 'square', 0.07);
+      thump(0.05, 0.05);
+    },
+    // ガールの悲鳴「キャーッ」: 高い音へ上がってから下がり、速いビブラートでうならせる(約 0.45 秒)
+    scream: () => {
+      sweep(1100, 1700, 0.18, 'square', 0.05, { rate: 28, depth: 90 });
+      setTimeout(() => {
+        if (enabled) sweep(1700, 900, 0.27, 'square', 0.05, { rate: 28, depth: 90 });
+      }, 170);
+    },
     batEnd: () => tone([[784, 0.06], [523, 0.06], [392, 0.12]], 'triangle', 0.07),
   };
 
@@ -245,8 +313,25 @@ DP.audio = (function () {
   // テスト用の通知先(?test のときだけ test-hooks.js が設定する。通常は null)
   let onPlay = null;
 
-  function play(name) {
-    if (!enabled || !SOUNDS[name]) return;
+  // ハシゴを登る音「ピュッ」: 一段ごとに短く上がる音。level(登った段数)が増えるほど高くなる
+  function climbSound(level) {
+    const base = 330 * Math.pow(2, Math.min(level, 24) / 12); // 半音ずつ上がる(2 オクターブまで)
+    sweep(base, base * 1.5, 0.07, 'square', 0.045);
+  }
+
+  // name: 効果音の名前。arg はその音に渡す値(今は climb の段数だけ)
+  function play(name, arg) {
+    if (!enabled) return;
+    if (name === 'climb') {
+      if (onPlay) onPlay(name);
+      try {
+        climbSound(arg || 0);
+      } catch (e) {
+        /* 音が鳴らせなくてもゲームは続ける */
+      }
+      return;
+    }
+    if (!SOUNDS[name]) return;
     if (onPlay) onPlay(name);
     try {
       SOUNDS[name]();

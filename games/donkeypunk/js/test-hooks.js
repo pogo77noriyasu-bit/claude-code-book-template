@@ -43,6 +43,13 @@ DP.installTestHooks = function (game, loop, renderer) {
         batPhase: DP.player.batPhase(p),
       },
       popups: g.popups.map((pp) => pp.text),
+      boss: g.boss && { x: g.boss.x, y: g.boss.y, gone: !!g.boss.gone },
+      heroine: g.heroine && { x: g.heroine.x, y: g.heroine.y, gone: !!g.heroine.gone },
+      escape: g.escape && {
+        phase: g.escape.phase, bossX: g.escape.bossX, bossY: g.escape.bossY,
+        girlX: g.escape.girlX, girlY: g.escape.girlY, carrying: g.escape.carrying,
+        ladderX: g.escape.ladderX, ladderBottom: g.escape.ladderBottom, walkFrame: g.escape.walkFrame,
+      },
       items: g.items.map((it) => Object.assign({ type: it.type, taken: it.taken }, game._itemHitbox(it))),
       hazards: g.hazards.map((h) => ({
         id: h.id, type: h.type, x: h.x, y: h.y, state: h.state,
@@ -70,6 +77,7 @@ DP.installTestHooks = function (game, loop, renderer) {
         index: l.index, x: l.x, lower: l.lower.id, upper: l.upper.id, topY: l.topY, bottomY: l.bottomY,
         broken: l.broken, climbTopY: l.climbTopY, stubBottomY: l.stubBottomY,
       })),
+      escapeLadders: g.level.stage.escape.ladders.slice(),
     },
     surfaceY: (id, x) => geo.surfaceY(g.level.byId[id], x),
     // ループを手動にして、決まった回数だけ進める

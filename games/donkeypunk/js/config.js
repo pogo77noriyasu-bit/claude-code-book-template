@@ -53,6 +53,16 @@ DP.config = {
     ladderChance: 0.25,
   },
 
+  // クリア後の逃走演出(速さは px/ステップ、長さはステップ数)
+  escape: {
+    walkSpeed: 1.2, // ガールの下へ歩く
+    reachFrames: 30, // 腕を振り上げてガールを引き寄せる
+    liftFrames: 18, // 担ぎ上げる
+    struggleFrames: 60, // ガールがジタバタ
+    carrySpeed: 1.0, // 担いでハシゴへ歩く
+    climbSpeed: 1.0, // ハシゴを登る
+  },
+
   // 釘バット(取ると一定時間ビールを叩き割れる)
   bat: {
     duration: 600, // 使える時間(ステップ)。10 秒
