@@ -1,0 +1,12 @@
+{
+  "name": "donkeypunk",
+  "private": true,
+  "description": "ドンキーパンク(ゲーム本体はビルド不要。Playwright テスト用の設定だけ)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "http-server": "14.1.1"
+  }
+}

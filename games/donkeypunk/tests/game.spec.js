@@ -1,0 +1,903 @@
+// ドンキーパンク Stage 1 の動作テスト
+// ?test を付けて開くと window.__dp(テスト補助)が使える。
+// ループを手動にして決まったステップ数だけ進めるので、結果は毎回同じになる。
+const { test, expect } = require('@playwright/test');
+
+// 各テストでコンソールのエラーを集め、最後に 0 件であることを確認する
+let errors;
+test.beforeEach(async ({ page }) => {
+  errors = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(e.message));
+});
+test.afterEach(async () => {
+  expect(errors, 'ブラウザのコンソールにエラーが出ていないこと').toEqual([]);
+});
+
+// ---- 補助関数 ----
+
+const snap = (page) => page.evaluate(() => window.__dp.snapshot());
+const step = (page, n) => page.evaluate((k) => window.__dp.step(k), n);
+// プレイヤーの当たり判定の高さ(config.player.height と同じ値)
+const DP_HEIGHT = 26;
+
+// タイトルを開いて ENTER で開始し、プレイ中まで進める。
+// 敵の投下は止めておき、各テストで必要な障害物だけを出す。
+async function startGame(page, { boss = false } = {}) {
+  await page.goto('./?test');
+  await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
+  await page.evaluate(() => { window.__dp.setManual(true); window.__dp.setSeed(1); });
+  await page.keyboard.press('Enter');
+  await step(page, 1);
+  await page.evaluate((on) => window.__dp.setBossEnabled(on), boss);
+  await step(page, 100); // READY 表示が終わるまで
+  const s = await snap(page);
+  expect(s.state).toBe('playing');
+  return s;
+}
+
+// キーを押したまま n ステップ進める
+async function hold(page, key, n) {
+  await page.keyboard.down(key);
+  const s = await step(page, n);
+  await page.keyboard.up(key);
+  return s;
+}
+
+// 地面の上で、指定の x まで歩く
+async function walkTo(page, x) {
+  let s = await snap(page);
+  const key = s.player.x < x ? 'ArrowRight' : 'ArrowLeft';
+  await page.keyboard.down(key);
+  for (let i = 0; i < 600; i++) {
+    s = await step(page, 1);
+    if (Math.abs(s.player.x - x) <= 1 || s.state !== 'playing') break;
+  }
+  await page.keyboard.up(key);
+  return s;
+}
+
+// ハシゴを上りきる(または下りきる)まで進める
+async function climb(page, key) {
+  let s;
+  await page.keyboard.down(key);
+  for (let i = 0; i < 300; i++) {
+    s = await step(page, 1);
+    if (i > 2 && s.player.state === 'ground') break;
+  }
+  await page.keyboard.up(key);
+  return s;
+}
+
+// ---- テスト ----
+
+test('1. タイトルからゲームを開始できる', async ({ page }) => {
+  await page.goto('./?test');
+  await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
+  await page.evaluate(() => window.__dp.setManual(true));
+  await page.keyboard.press('Enter');
+  let s = await step(page, 1);
+  expect(s.state).toBe('ready');
+  expect(s.lives).toBe(3);
+  expect(s.score).toBe(0);
+  s = await step(page, 100);
+  expect(s.state).toBe('playing');
+  expect(s.player.girder).toBe('g0');
+});
+
+test('2. 左右に移動でき、画面の外へは出ない', async ({ page }) => {
+  const s0 = await startGame(page);
+  let s = await hold(page, 'ArrowRight', 30);
+  expect(s.player.x).toBeGreaterThan(s0.player.x + 30);
+  const surfaceR = await page.evaluate((x) => window.__dp.surfaceY('g0', x), s.player.x);
+  expect(s.player.y).toBeCloseTo(surfaceR, 5); // 斜めの鉄骨に沿って歩く
+
+  const x1 = s.player.x;
+  s = await hold(page, 'ArrowLeft', 20);
+  expect(s.player.x).toBeLessThan(x1 - 20);
+
+  // 左端まで歩き続けても画面内に留まる
+  s = await hold(page, 'ArrowLeft', 200);
+  expect(s.player.x).toBeGreaterThanOrEqual(7);
+  expect(s.player.state).toBe('ground');
+});
+
+test('3. ジャンプして鉄骨に着地できる', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => window.__dp.placePlayer('g0', 200));
+  const before = await snap(page);
+  await page.keyboard.press('Space');
+  let s = await step(page, 1);
+  expect(s.player.state).toBe('air');
+  let minY = s.player.y;
+  for (let i = 0; i < 60 && s.player.state === 'air'; i++) {
+    s = await step(page, 1);
+    minY = Math.min(minY, s.player.y);
+  }
+  expect(before.player.y - minY).toBeGreaterThan(25); // 十分な高さまで跳んだ
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g0');
+  expect(s.player.y).toBeCloseTo(before.player.y, 5); // 元の高さにぴったり着地
+  expect(s.state).toBe('playing'); // 通常のジャンプではミスにならない
+
+  // 横ジャンプ: 右へ跳んで、斜めの鉄骨の上に正しく着地する
+  await page.keyboard.down('ArrowRight');
+  await page.keyboard.press('Space');
+  s = await step(page, 1);
+  await page.keyboard.up('ArrowRight');
+  for (let i = 0; i < 60 && s.player.state === 'air'; i++) s = await step(page, 1);
+  const surf = await page.evaluate((x) => window.__dp.surfaceY('g0', x), s.player.x);
+  expect(s.player.x).toBeGreaterThan(240);
+  expect(s.player.y).toBeCloseTo(surf, 5);
+});
+
+test('4. 鉄骨を下から突き抜けない', async ({ page }) => {
+  await startGame(page);
+
+  // (a) 実際のジャンプ: g1 の左端付近は上の g2 との隙間が狭く、頭がぶつかる
+  await page.evaluate(() => window.__dp.placePlayer('g1', 40));
+  const ceiling = await page.evaluate(() => window.__dp.surfaceY('g2', 40) + 8); // g2 の下面
+  await page.keyboard.press('Space');
+  let s = await step(page, 1);
+  let minHead = s.player.head;
+  for (let i = 0; i < 80 && s.player.state === 'air'; i++) {
+    s = await step(page, 1);
+    minHead = Math.min(minHead, s.player.head);
+  }
+  expect(minHead).toBeGreaterThanOrEqual(ceiling - 0.01); // 頭は下面より上へ行かない
+  expect(s.player.girder).toBe('g1'); // 元の段に戻る
+
+  // (b) 強い上向きの速度で下から突っ込ませても、鉄骨の下で止まる
+  const g1Bottom = await page.evaluate(() => window.__dp.surfaceY('g1', 200) + 8);
+  await page.evaluate((y) => window.__dp.placePlayerAir(200, y, -12), g1Bottom + 26 + 4);
+  for (let i = 0; i < 10; i++) {
+    s = await step(page, 1);
+    expect(s.player.head).toBeGreaterThanOrEqual(g1Bottom - 0.01);
+  }
+  for (let i = 0; i < 120 && s.player.state === 'air'; i++) s = await step(page, 1);
+  expect(s.player.girder).toBe('g0'); // 下の段に落ちて着地する(g1 の上には乗らない)
+});
+
+test('5. ハシゴの位置でだけ上下に移動できる', async ({ page }) => {
+  await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const ladder = lv.ladders.find((l) => l.lower === 'g0' && l.upper === 'g1' && l.x === 110);
+
+  // ハシゴのない場所で ↑ を押しても登れない
+  await page.evaluate(() => window.__dp.placePlayer('g0', 200));
+  let s = await hold(page, 'ArrowUp', 30);
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g0');
+
+  // ハシゴの少し横(つかめる範囲)から登る
+  await page.evaluate((x) => window.__dp.placePlayer('g0', x), ladder.x + 4);
+  s = await hold(page, 'ArrowUp', 20);
+  expect(s.player.state).toBe('ladder');
+  expect(s.player.x).toBe(ladder.x); // ハシゴの中央に合わせる
+  const yMid = s.player.y;
+
+  // 昇降中は左右に動かない
+  s = await hold(page, 'ArrowLeft', 20);
+  expect(s.player.x).toBe(ladder.x);
+  expect(s.player.y).toBe(yMid);
+  // ジャンプもできない
+  await page.keyboard.press('Space');
+  s = await step(page, 5);
+  expect(s.player.state).toBe('ladder');
+
+  // 上りきると上の段に立つ
+  s = await climb(page, 'ArrowUp');
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g1');
+  expect(s.player.y).toBeCloseTo(ladder.topY, 5);
+
+  // 下りる
+  s = await climb(page, 'ArrowDown');
+  expect(s.player.girder).toBe('g0');
+  expect(s.player.y).toBeCloseTo(ladder.bottomY, 5);
+});
+
+test('6. ビール瓶・缶が鉄骨を転がり、端から下の段へ落ちる', async ({ page }) => {
+  await startGame(page);
+  // プレイヤーはじゃまにならない最上段へ
+  await page.evaluate(() => window.__dp.placePlayer('top', 290));
+  const result = await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.clearHazards();
+    const ids = [dp.spawnHazard('bottle', 'g5', 110), dp.spawnHazard('can', 'g5', 140)];
+    const visited = { [ids[0]]: new Set(), [ids[1]]: new Set() };
+    const types = {};
+    const problems = [];
+    let gone = 0;
+    for (let i = 0; i < 4000; i++) {
+      const s = dp.step(1);
+      for (const h of s.hazards) {
+        types[h.id] = h.type;
+        if (h.state === 'roll') {
+          visited[h.id].add(h.girder);
+          // 転がり中は必ず鉄骨の上面に乗っている
+          const surf = dp.surfaceY(h.girder, h.x);
+          if (Math.abs(surf - h.y) > 0.01) problems.push(`id${h.id} 浮き/めり込み ${h.girder} x=${h.x} y=${h.y}`);
+        }
+        if (h.state === 'fall') {
+          // 落下中も最下段より下へすり抜けない
+          if (h.x >= 0 && h.x <= 480 && h.y > dp.surfaceY('g0', h.x) + 0.01) problems.push(`id${h.id} 最下段をすり抜け`);
+        }
+      }
+      if (s.state !== 'playing') problems.push('プレイ中でなくなった: ' + s.state);
+      if (s.hazards.length === 0) { gone = i; break; }
+    }
+    return { visited: { a: [...visited[ids[0]]], b: [...visited[ids[1]]] }, types, problems: problems.slice(0, 5), gone };
+  });
+  expect(result.problems).toEqual([]);
+  expect(Object.values(result.types).sort()).toEqual(['bottle', 'can']);
+  // 上から順に下の段へ降りてきて、最後は最下段から画面外へ消える
+  for (const v of [result.visited.a, result.visited.b]) {
+    expect(v[0]).toBe('g5');
+    expect(v).toContain('g0');
+  }
+  expect(result.gone).toBeGreaterThan(0);
+});
+
+test('7. 障害物に当たると残機が減り、開始位置から再開する', async ({ page }) => {
+  const start = await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.spawnHazard('can', 'g0', 230); });
+  let s = await step(page, 60);
+  expect(s.state).toBe('dying');
+  expect(s.deathReason).toBe('hazard');
+  s = await step(page, 130);
+  expect(s.lives).toBe(2);
+  expect(s.state).toBe('ready');
+  expect(s.player.x).toBe(start.player.x);
+  expect(s.player.girder).toBe('g0');
+  expect(s.hazards).toEqual([]);
+
+  // ジャンプ中に当たってもミスになる
+  s = await step(page, 100);
+  expect(s.state).toBe('playing');
+  await page.evaluate(() => {
+    const y = window.__dp.surfaceY('g0', 300);
+    window.__dp.spawnHazard('bottle', 'g0', 300);
+    window.__dp.placePlayerAir(300, y - 6, -1);
+  });
+  s = await step(page, 1);
+  expect(s.state).toBe('dying');
+
+  // ちゃんと飛び越えればミスにならず 100 点
+  s = await step(page, 130);
+  s = await step(page, 100);
+  expect(s.lives).toBe(1);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.spawnHazard('can', 'g0', 270); });
+  for (let i = 0; i < 200; i++) {
+    s = await step(page, 1);
+    if (s.hazards[0].x - s.player.x <= 22) break; // 缶まで約 22px で踏み切る
+  }
+  await page.keyboard.press('Space');
+  s = await step(page, 80);
+  expect(s.state).toBe('playing');
+  expect(s.lives).toBe(1);
+  expect(s.score).toBe(100);
+});
+
+test('8. 残機ゼロでゲームオーバーになり、ENTER で再挑戦できる', async ({ page }) => {
+  await startGame(page);
+  for (let life = 3; life >= 1; life--) {
+    await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.spawnHazard('bottle', 'g0', 225); });
+    let s = await step(page, 60);
+    expect(s.state).toBe('dying');
+    s = await step(page, 125);
+    expect(s.lives).toBe(life - 1);
+    if (life > 1) {
+      expect(s.state).toBe('ready');
+      await step(page, 100);
+    } else {
+      expect(s.state).toBe('gameover');
+    }
+  }
+  await page.keyboard.press('Enter');
+  const s = await step(page, 1);
+  expect(s.state).toBe('ready');
+  expect(s.lives).toBe(3);
+  expect(s.score).toBe(0);
+});
+
+test('9. ハシゴを登って最上段のガールに触れるとクリア(Oi! Oi! Oi!)', async ({ page }) => {
+  await startGame(page);
+  // 最下段から最上段まで、実際のキー操作で登る
+  const route = [
+    [110, 'g1'], [72, 'g2'], [184, 'g3'], [92, 'g4'], [216, 'g5'], [288, 'top'],
+  ];
+  let s;
+  for (const [x, next] of route) {
+    s = await walkTo(page, x);
+    expect(s.state).toBe('playing');
+    s = await climb(page, 'ArrowUp');
+    expect(s.player.girder).toBe(next);
+  }
+  const scoreBefore = s.score;
+  s = await walkTo(page, 200);
+  expect(s.state).toBe('clear');
+  expect(s.message).toBe('Oi! Oi! Oi!');
+  expect(s.score).toBeGreaterThan(scoreBefore);
+
+  // 演出のあと ENTER で次の周回(今は 1 面のみなので 1 面に戻り、R2 になる)
+  s = await step(page, 160);
+  await page.keyboard.press('Enter');
+  s = await step(page, 1);
+  expect(s.state).toBe('ready');
+  expect(s.round).toBe(2);
+});
+
+test('10. 通常プレイ(テスト補助なし)でコンソールエラーが出ず、補助も公開されない', async ({ page }) => {
+  await page.goto('./');
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => typeof window.__dp)).toBe('undefined');
+  await page.keyboard.press('Enter');
+  // 実時間で 6 秒ほど適当に操作する(敵も通常どおり投下する)
+  const keys = ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'Space', 'ArrowRight', 'ArrowDown'];
+  for (let i = 0; i < 12; i++) {
+    const k = keys[i % keys.length];
+    await page.keyboard.down(k);
+    await page.waitForTimeout(400);
+    await page.keyboard.up(k);
+  }
+  await page.waitForTimeout(500);
+});
+
+// ---- 足音 ----
+
+// 記録された効果音のうち、足音(stepA=ピコ / stepB=ポコ)だけを取り出す
+const footsteps = async (page) =>
+  (await page.evaluate(() => window.__dp.sounds())).filter((n) => n === 'stepA' || n === 'stepB');
+
+test('11. 左右に歩いている間だけ「ピコ」「ポコ」が交互に鳴り、止まると鳴りやむ', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.clearSounds(); });
+
+  // 右へ 60 ステップ歩く(12 ステップごとに 1 歩 → 5 歩)
+  await hold(page, 'ArrowRight', 60);
+  let fs = await footsteps(page);
+  expect(fs).toEqual(['stepA', 'stepB', 'stepA', 'stepB', 'stepA']);
+
+  // 立ち止まったら鳴らない
+  await page.evaluate(() => window.__dp.clearSounds());
+  await step(page, 60);
+  expect(await footsteps(page)).toEqual([]);
+
+  // 左へ歩いても鳴る(歩き直すと「ピコ」から)
+  await hold(page, 'ArrowLeft', 30);
+  fs = await footsteps(page);
+  expect(fs).toEqual(['stepA', 'stepB', 'stepA']);
+});
+
+test('12. ハシゴを登り降りしているときと、ジャンプ中は足音が鳴らない', async ({ page }) => {
+  await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const ladder = lv.ladders.find((l) => l.lower === 'g0' && l.upper === 'g1' && l.x === 110);
+  await page.evaluate((x) => { window.__dp.placePlayer('g0', x); window.__dp.clearSounds(); }, ladder.x);
+
+  let s = await climb(page, 'ArrowUp');
+  expect(s.player.girder).toBe('g1');
+  s = await climb(page, 'ArrowDown');
+  expect(s.player.girder).toBe('g0');
+  expect(await footsteps(page)).toEqual([]);
+
+  // その場ジャンプ(空中)でも鳴らない
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.clearSounds(); });
+  await page.keyboard.press('Space');
+  s = await step(page, 1);
+  expect(s.player.state).toBe('air');
+  for (let i = 0; i < 120 && s.player.state === 'air'; i++) s = await step(page, 1);
+  expect(await footsteps(page)).toEqual([]);
+});
+
+test('13. M キーで音を OFF にすると足音も鳴らず、ON に戻すとまた鳴る', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.clearSounds(); });
+  expect(await page.evaluate(() => window.__dp.soundEnabled())).toBe(true);
+
+  await page.keyboard.press('m');
+  await step(page, 1);
+  expect(await page.evaluate(() => window.__dp.soundEnabled())).toBe(false);
+  await hold(page, 'ArrowRight', 40);
+  expect(await footsteps(page)).toEqual([]);
+
+  await page.keyboard.press('m');
+  await step(page, 1);
+  expect(await page.evaluate(() => window.__dp.soundEnabled())).toBe(true);
+  await hold(page, 'ArrowLeft', 40);
+  expect((await footsteps(page)).length).toBeGreaterThan(0);
+});
+
+// ---- ハシゴ上端で待つときの障害物 ----
+
+// g1(右へ転がる段)の x=60 に缶を置き、ハシゴ 0(x=110, g0→g1)を通り過ぎるまで進める。
+// 降りる確率は 100% にして、「降りない」のがプレイヤーの位置のおかげだと分かるようにする。
+async function rollOverLadder0(page, placePlayer) {
+  return page.evaluate((how) => {
+    const dp = window.__dp;
+    const ladder = dp.level().ladders[0];
+    dp.clearHazards();
+    dp.setLadderChance(1);
+    if (how.type === 'ladder') dp.placePlayerLadder(how.index, dp.level().ladders[how.index].topY + how.below);
+    else dp.placePlayer(how.girder, how.x);
+    const id = dp.spawnHazard('can', 'g1', 60);
+    const states = new Set();
+    let s;
+    for (let i = 0; i < 200; i++) {
+      s = dp.step(1);
+      const h = s.hazards.find((x) => x.id === id);
+      if (!h) break;
+      states.add(h.state);
+      if (s.state !== 'playing') break;
+      if (h.state === 'roll' && h.girder === 'g1' && h.x > ladder.x + 30) break;
+    }
+    dp.setLadderChance(null);
+    return { states: [...states], s };
+  }, placePlayer);
+}
+
+test('14. ハシゴの上端付近で待っていると、障害物は降りずに頭上を通過する', async ({ page }) => {
+  const start = await startGame(page);
+  // 頭が上の段の上面より 2px 下(当たらないギリギリ)でハシゴにつかまって待つ
+  const r = await rollOverLadder0(page, { type: 'ladder', index: 0, below: DP_HEIGHT + 2 });
+  expect(r.states).toEqual(['roll']); // 一度もハシゴを降りない
+  expect(r.s.state).toBe('playing');
+  expect(r.s.lives).toBe(start.lives);
+  expect(r.s.player.state).toBe('ladder');
+  expect(r.s.player.ladder).toBe(0);
+});
+
+test('15. プレイヤーがそのハシゴにいなければ、これまでどおり障害物はハシゴを降りる', async ({ page }) => {
+  await startGame(page);
+  // 鉄骨の上の離れた場所にいるとき
+  let r = await rollOverLadder0(page, { type: 'ground', girder: 'g0', x: 300 });
+  expect(r.states).toContain('ladder');
+  // 別のハシゴ(ハシゴ 1: x=380, g0→g1)につかまっているとき
+  r = await rollOverLadder0(page, { type: 'ladder', index: 1, below: DP_HEIGHT + 2 });
+  expect(r.states).toContain('ladder');
+  expect(r.s.state).toBe('playing');
+});
+
+test('16. ハシゴの上端から頭を出しすぎていると、転がる障害物に当たる(当たり判定は従来どおり)', async ({ page }) => {
+  await startGame(page);
+  const r = await rollOverLadder0(page, { type: 'ladder', index: 0, below: 10 });
+  expect(r.states).not.toContain('ladder');
+  expect(r.s.state).toBe('dying');
+  expect(r.s.deathReason).toBe('hazard');
+});
+
+// ---- 釘バット ----
+
+const BAT_DURATION = 600; // config.bat.duration と同じ値
+
+// 空中にいる間ずっと進める(着地するまで)。途中で一度でも空中だったかも返す
+async function untilLanded(page) {
+  let s = await step(page, 1);
+  let wasAir = s.player.state === 'air';
+  for (let i = 0; i < 120 && s.player.state === 'air'; i++) s = await step(page, 1);
+  return { s, wasAir };
+}
+
+test('17. 釘バットは鉄骨から浮いていて、当たり判定は見た目(ドット絵)と同じ大きさ・位置', async ({ page }) => {
+  const start = await startGame(page);
+  const info = await page.evaluate(() => {
+    const spr = window.DP.sprites.DATA.batSide;
+    return { w: spr.w * window.DP.config.PIXEL, h: spr.h * window.DP.config.PIXEL };
+  });
+  const placed = [['g2', start.items[0]], ['g4', start.items[1]]];
+  for (const [girder, it] of placed) {
+    expect(it.w).toBe(info.w);
+    expect(it.h).toBe(info.h);
+    const surf = await page.evaluate(([gid, x]) => window.__dp.surfaceY(gid, x), [girder, it.x]);
+    // 下端が鉄骨から 34px 浮いている。立っているときの頭(26px)より上
+    expect(surf - it.y).toBeCloseTo(34, 5);
+    expect(surf - it.y).toBeGreaterThan(DP_HEIGHT);
+  }
+});
+
+test('18. 釘バットの下を歩いても拾えず、真下でジャンプして触れると拾う(持ったまま歩ける)', async ({ page }) => {
+  const start = await startGame(page);
+  const item = start.items[0]; // g2 の右端寄り
+  await page.evaluate((x) => { window.__dp.placePlayer('g2', x - 40); window.__dp.clearSounds(); }, item.x);
+
+  // 下を端から端まで歩いて通り抜けても拾わない
+  let s = await walkTo(page, item.x + 20);
+  expect(s.player.x).toBeGreaterThan(item.x + 15);
+  s = await walkTo(page, item.x - 30);
+  expect(s.items[0].taken).toBe(false);
+  expect(s.player.bat).toBe(0);
+  expect(await page.evaluate(() => window.__dp.sounds())).not.toContain('batGet');
+
+  // 真下でジャンプすると、空中で触れて拾う
+  await page.evaluate((x) => { window.__dp.placePlayer('g2', x); window.__dp.clearSounds(); }, item.x);
+  await page.keyboard.press('Space');
+  let got = null;
+  for (let i = 0; i < 60; i++) {
+    s = await step(page, 1);
+    if (s.player.bat > 0 && !got) got = s;
+  }
+  expect(got).not.toBeNull();
+  expect(got.player.state).toBe('air'); // 拾った瞬間は空中
+  expect(got.player.head).toBeLessThan(item.y); // 頭が釘バットの下端より上に届いている
+  expect(s.items[0].taken).toBe(true);
+  expect(s.items[1].taken).toBe(false);
+  expect(s.player.state).toBe('ground');
+  expect(await page.evaluate(() => window.__dp.sounds())).toContain('batGet');
+
+  // 持ったまま歩ける(使用中は BGM が流れるので足音は鳴らない: テスト 25)。振りは上・下を交互にくり返す
+  const x0 = s.player.x;
+  const phases = new Set();
+  await page.keyboard.down('ArrowLeft');
+  for (let i = 0; i < 40; i++) {
+    s = await step(page, 1);
+    phases.add(s.player.batPhase);
+  }
+  await page.keyboard.up('ArrowLeft');
+  expect([...phases].sort()).toEqual(['down', 'up']);
+  expect(s.player.x).toBeLessThan(x0 - 20);
+});
+
+test('19. ジャンプしても釘バットに触れなければ拾えない', async ({ page }) => {
+  const start = await startGame(page);
+  const item = start.items[0];
+  // 横に少しずれた位置(当たり判定どうしが重ならない距離)で真上にジャンプする
+  const gap = (item.w + 14) / 2 + 2; // 14 = 主人公の当たり判定の幅
+  await page.evaluate((x) => window.__dp.placePlayer('g2', x), item.x - gap);
+  await page.keyboard.press('Space');
+  const r = await untilLanded(page);
+  expect(r.wasAir).toBe(true);
+  expect(r.s.items[0].taken).toBe(false);
+  expect(r.s.player.bat).toBe(0);
+
+  // 境目より内側なら届く(当たり判定が見た目どおりの幅であることの確認)
+  await page.evaluate((x) => window.__dp.placePlayer('g2', x), item.x - gap + 6);
+  await page.keyboard.press('Space');
+  const r2 = await untilLanded(page);
+  expect(r2.s.items[0].taken).toBe(true);
+});
+
+test('20. 釘バットを持っている間はジャンプもハシゴの昇降もできない', async ({ page }) => {
+  await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const up = lv.ladders.find((l) => l.lower === 'g2' && l.x === 184); // g2 から上へ
+  const down = lv.ladders.find((l) => l.upper === 'g2' && l.x === 256); // g2 から下へ
+  await page.evaluate(() => window.__dp.setBat(600));
+
+  // ジャンプできない
+  await page.evaluate(() => window.__dp.placePlayer('g2', 300));
+  await page.keyboard.press('Space');
+  let s = await step(page, 10);
+  expect(s.player.state).toBe('ground');
+
+  // ハシゴを上れない
+  await page.evaluate((x) => window.__dp.placePlayer('g2', x), up.x);
+  s = await hold(page, 'ArrowUp', 30);
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g2');
+
+  // ハシゴを下りられない
+  await page.evaluate((x) => window.__dp.placePlayer('g2', x), down.x);
+  s = await hold(page, 'ArrowDown', 30);
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g2');
+  expect(s.player.bat).toBeGreaterThan(0);
+});
+
+test('21. 振り回している釘バットで前から来たビール瓶・缶を割ると得点と効果音', async ({ page }) => {
+  await startGame(page);
+  // 最下段 g0 は左へ転がる。プレイヤーは右を向いて待つ
+  await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.placePlayer('g0', 200); dp.setFacing(1); dp.setBat(600); dp.clearSounds();
+    dp.spawnHazard('can', 'g0', 260);
+    dp.spawnHazard('bottle', 'g0', 330);
+  });
+  const before = (await snap(page)).score;
+  let s;
+  for (let i = 0; i < 150; i++) {
+    s = await step(page, 1);
+    if (s.hazards.length === 0 || s.state !== 'playing') break;
+  }
+  expect(s.state).toBe('playing');
+  expect(s.hazards).toEqual([]);
+  expect(s.score).toBe(before + 300 * 2);
+  const sounds = await page.evaluate(() => window.__dp.sounds());
+  expect(sounds.filter((n) => n === 'smash').length).toBe(2);
+});
+
+test('22. 釘バットを持っていても、背中側から来たビールには当たる', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.placePlayer('g0', 200); dp.setFacing(-1); dp.setBat(600);
+    dp.spawnHazard('can', 'g0', 260);
+  });
+  let s;
+  for (let i = 0; i < 150; i++) {
+    s = await step(page, 1);
+    if (s.state !== 'playing') break;
+  }
+  expect(s.state).toBe('dying');
+  expect(s.deathReason).toBe('hazard');
+});
+
+test('23. 制限時間が終わると警告音のあと通常状態に戻り、またジャンプ・ハシゴができる', async ({ page }) => {
+  await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const up = lv.ladders.find((l) => l.lower === 'g2' && l.x === 184);
+  await page.evaluate((x) => { window.__dp.placePlayer('g2', x); window.__dp.setBat(200); window.__dp.clearSounds(); }, up.x);
+
+  let s = await step(page, 199);
+  expect(s.player.bat).toBe(1);
+  s = await step(page, 1);
+  expect(s.player.bat).toBe(0);
+  expect(s.player.batPhase).toBe(null);
+  const sounds = await page.evaluate(() => window.__dp.sounds());
+  expect(sounds.filter((n) => n === 'batTick').length).toBeGreaterThan(0); // 残り 3 秒の警告音
+  expect(sounds[sounds.length - 1]).toBe('batEnd');
+
+  // ハシゴに上れる
+  s = await hold(page, 'ArrowUp', 10);
+  expect(s.player.state).toBe('ladder');
+  // ジャンプできる
+  await page.evaluate(() => window.__dp.placePlayer('g2', 300));
+  await page.keyboard.press('Space');
+  s = await step(page, 2);
+  expect(s.player.state).toBe('air');
+});
+
+test('24. ミスすると釘バットは手放し、アイテムは元の場所に戻る', async ({ page }) => {
+  const start = await startGame(page);
+  // 真下でジャンプして拾う
+  await page.evaluate((x) => { window.__dp.placePlayer('g2', x); }, start.items[0].x);
+  await page.keyboard.press('Space');
+  let s = (await untilLanded(page)).s;
+  expect(s.items[0].taken).toBe(true);
+  expect(s.player.bat).toBeGreaterThan(0);
+  // 高いところから落としてミスにする
+  await page.evaluate(() => window.__dp.placePlayerAir(330, 100, 0));
+  for (let i = 0; i < 300; i++) {
+    s = await step(page, 1);
+    if (s.state === 'ready') break;
+  }
+  expect(s.state).toBe('ready');
+  expect(s.player.bat).toBe(0);
+  expect(s.items.map((it) => it.taken)).toEqual([false, false]);
+});
+
+// ---- 釘バット使用中の BGM ----
+
+const music = (page) => page.evaluate(() => window.__dp.music());
+
+test('25. 釘バットを拾うと BGM が流れ、使用中は足音が鳴らず、破壊音は BGM と同時に鳴る', async ({ page }) => {
+  const start = await startGame(page);
+  expect(await music(page)).toBe(null);
+  // 真下でジャンプして拾う
+  await page.evaluate((x) => { window.__dp.placePlayer('g2', x); window.__dp.setFacing(-1); window.__dp.clearSounds(); }, start.items[0].x);
+  await page.keyboard.press('Space');
+  let s = (await untilLanded(page)).s;
+  expect(s.player.bat).toBeGreaterThan(0);
+  expect(await music(page)).toBe('bat');
+  expect(await page.evaluate(() => window.__dp.sounds())).toContain('batGet'); // 取得音はそのまま
+
+  // 歩いても足音は鳴らない(BGM は流れたまま)
+  await page.evaluate(() => window.__dp.clearSounds());
+  await hold(page, 'ArrowLeft', 60);
+  expect(await footsteps(page)).toEqual([]);
+  expect(await music(page)).toBe('bat');
+
+  // 前から来た缶を割ると、BGM を止めずに破壊音が鳴る(g2 は左へ転がるので右を向く)
+  await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.setFacing(1); dp.clearSounds();
+    const p = dp.snapshot().player;
+    dp.spawnHazard('can', 'g2', p.x + 70);
+  });
+  for (let i = 0; i < 120; i++) {
+    s = await step(page, 1);
+    if (s.hazards.length === 0) break;
+  }
+  expect(s.state).toBe('playing');
+  expect(await page.evaluate(() => window.__dp.sounds())).toContain('smash');
+  expect(await music(page)).toBe('bat');
+});
+
+test('26. 残り 3 秒の警告音は BGM 中も鳴り、時間切れで BGM が止まって足音が戻る', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.setBat(200); window.__dp.clearSounds(); });
+  let s = await step(page, 100);
+  expect(await music(page)).toBe('bat');
+  expect(await page.evaluate(() => window.__dp.sounds())).toContain('batTick');
+  s = await step(page, 100);
+  expect(s.player.bat).toBe(0);
+  expect(await music(page)).toBe(null);
+  const sounds = await page.evaluate(() => window.__dp.sounds());
+  expect(sounds[sounds.length - 1]).toBe('batEnd');
+
+  await page.evaluate(() => window.__dp.clearSounds());
+  await hold(page, 'ArrowRight', 30);
+  expect((await footsteps(page)).length).toBeGreaterThan(0);
+});
+
+test('27. ミスしたときとクリアしたときは BGM が止まる', async ({ page }) => {
+  await startGame(page);
+  // ミス(高いところから落ちる)
+  await page.evaluate(() => { window.__dp.setBat(600); });
+  await step(page, 1);
+  expect(await music(page)).toBe('bat');
+  await page.evaluate(() => window.__dp.placePlayerAir(330, 100, 0));
+  let s;
+  for (let i = 0; i < 200; i++) {
+    s = await step(page, 1);
+    if (s.state === 'dying') break;
+  }
+  expect(s.state).toBe('dying');
+  expect(await music(page)).toBe(null);
+
+  // 再開後、持ったままガールに触れてクリア
+  for (let i = 0; i < 300 && s.state !== 'playing'; i++) s = await step(page, 1);
+  await page.evaluate(() => { window.__dp.setBossEnabled(false); window.__dp.clearHazards(); window.__dp.placePlayer('top', 240); window.__dp.setBat(600); });
+  await step(page, 1);
+  expect(await music(page)).toBe('bat');
+  await page.evaluate(() => window.__dp.placePlayer('top', 205));
+  s = await step(page, 2);
+  expect(s.state).toBe('clear');
+  expect(await music(page)).toBe(null);
+});
+
+test('28. M キーで音を OFF にすると BGM も止まり、ON に戻すと使用時間内なら再開する', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.setBat(300); });
+  await step(page, 1);
+  expect(await music(page)).toBe('bat');
+
+  await page.keyboard.press('m');
+  await step(page, 1);
+  expect(await music(page)).toBe(null);
+  await step(page, 30);
+  expect(await music(page)).toBe(null); // OFF の間は流れない
+
+  await page.keyboard.press('m');
+  let s = await step(page, 1);
+  expect(s.player.bat).toBeGreaterThan(0);
+  expect(await music(page)).toBe('bat');
+
+  // OFF のまま時間切れになったら、ON に戻しても流れない
+  await page.keyboard.press('m');
+  await step(page, 1);
+  s = await step(page, 300);
+  expect(s.player.bat).toBe(0);
+  await page.keyboard.press('m');
+  await step(page, 1);
+  expect(await music(page)).toBe(null);
+});
+
+test('29. 破壊音「ビュイ～ン」は得点表示と同じステップで鳴り、その間 BGM の音量を下げる(BGM は止めない)', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => {
+    const dp = window.__dp;
+    dp.placePlayer('g0', 200); dp.setFacing(1); dp.setBat(600);
+    dp.spawnHazard('bottle', 'g0', 300);
+  });
+  let s = await step(page, 1);
+  expect(await music(page)).toBe('bat');
+  expect(await page.evaluate(() => window.__dp.musicDucked())).toBe(false);
+  await page.evaluate(() => window.__dp.clearSounds());
+
+  const before = s.score;
+  for (let i = 0; i < 150; i++) {
+    s = await step(page, 1);
+    if (s.score !== before) break;
+  }
+  // 得点・得点表示・破壊音が同じステップで出る
+  expect(s.score).toBe(before + 300);
+  expect(s.popups).toContain('300');
+  expect(await page.evaluate(() => window.__dp.sounds())).toEqual(['smash']);
+  // BGM は流れたまま、破壊音の間だけ下げている
+  expect(await music(page)).toBe('bat');
+  expect(await page.evaluate(() => window.__dp.musicDucked())).toBe(true);
+  // 0.5 秒(+ 余裕)たつと元に戻る
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => window.__dp.musicDucked())).toBe(false);
+  expect(await music(page)).toBe('bat');
+});
+
+// ---- 途中で切れているハシゴ ----
+
+const brokenLadders = async (page) => (await page.evaluate(() => window.__dp.level())).ladders.filter((l) => l.broken);
+
+test('30. 切れたハシゴが配置され、正規のハシゴだけで最下段からゴールまで行ける', async ({ page }) => {
+  await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const broken = lv.ladders.filter((l) => l.broken);
+  expect(broken.length).toBe(4);
+  for (const l of broken) {
+    // 登れる上端は上の段の上面 + 44px。切れ端との間にすき間がある
+    expect(l.climbTopY).toBeCloseTo(l.topY + 44, 5);
+    expect(l.stubBottomY).toBeLessThan(l.climbTopY - 6);
+    expect(l.climbTopY).toBeLessThan(l.bottomY - 12); // 途中までは登れる長さがある
+  }
+  // 正規のハシゴだけをたどって g0 から top まで行けること(幅優先探索)
+  const seen = new Set(['g0']);
+  const queue = ['g0'];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const l of lv.ladders) {
+      if (!l.broken && l.lower === cur && !seen.has(l.upper)) { seen.add(l.upper); queue.push(l.upper); }
+    }
+  }
+  expect(seen.has('top')).toBe(true);
+});
+
+test('31. 切れたハシゴは途中まで登れるが上の段には届かず、行き止まりから下へ降りられる', async ({ page }) => {
+  await startGame(page);
+  for (const l of await brokenLadders(page)) {
+    await page.evaluate(([gid, x]) => window.__dp.placePlayer(gid, x), [l.lower, l.x]);
+    // ずっと ↑ を押し続けても行き止まりで止まる
+    let s = await hold(page, 'ArrowUp', 200);
+    expect(s.player.state).toBe('ladder');
+    expect(s.player.girder).toBe(null);
+    expect(s.player.y).toBeCloseTo(l.climbTopY, 5);
+    // 頭は上の段の下面(上面 + 厚み 8px)より下
+    expect(s.player.head).toBeGreaterThan(l.topY + 8);
+    // 下へ降りると下の段に立つ
+    s = await climb(page, 'ArrowDown');
+    expect(s.player.state).toBe('ground');
+    expect(s.player.girder).toBe(l.lower);
+    expect(s.player.y).toBeCloseTo(l.bottomY, 5);
+  }
+});
+
+test('32. 切れたハシゴは上の段からつかまって降りられず、釘バット所持中は下からもつかまれない', async ({ page }) => {
+  await startGame(page);
+  const l = (await brokenLadders(page))[0];
+  await page.evaluate(([gid, x]) => window.__dp.placePlayer(gid, x), [l.upper, l.x]);
+  let s = await hold(page, 'ArrowDown', 30);
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe(l.upper);
+
+  await page.evaluate(([gid, x]) => { window.__dp.placePlayer(gid, x); window.__dp.setBat(600); }, [l.lower, l.x]);
+  s = await hold(page, 'ArrowUp', 30);
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe(l.lower);
+});
+
+test('33. 障害物は切れたハシゴも降りられるが、行き止まりで待っていれば降りずに頭上を通過する', async ({ page }) => {
+  const start = await startGame(page);
+  // g0→g1 の切れたハシゴ(x=250)。g1 は右へ転がる
+  const l = (await brokenLadders(page)).find((x) => x.lower === 'g0');
+  const run = (onLadder) => page.evaluate(([lad, onL]) => {
+    const dp = window.__dp;
+    dp.clearHazards();
+    dp.setLadderChance(1);
+    if (onL) dp.placePlayerLadder(lad.index, lad.climbTopY);
+    else dp.placePlayer('g0', 420);
+    const id = dp.spawnHazard('bottle', 'g1', lad.x - 50);
+    const states = [];
+    let s;
+    for (let i = 0; i < 300; i++) {
+      s = dp.step(1);
+      const h = s.hazards.find((x) => x.id === id);
+      if (!h || s.state !== 'playing') break;
+      if (states[states.length - 1] !== h.state + ':' + h.girder) states.push(h.state + ':' + h.girder);
+      if (h.girder === 'g0' || (h.girder === 'g1' && h.x > lad.x + 40)) break;
+    }
+    dp.setLadderChance(null);
+    return { states, s };
+  }, [l, onLadder]);
+
+  // 誰もいなければ、すき間を通って下の段まで降りる
+  let r = await run(false);
+  expect(r.states).toContain('ladder:null');
+  expect(r.states[r.states.length - 1]).toBe('roll:g0');
+
+  // 行き止まりで待っていると、降りずに通過する(頭は当たらない高さ)
+  r = await run(true);
+  expect(r.states).toEqual(['roll:g1']);
+  expect(r.s.state).toBe('playing');
+  expect(r.s.lives).toBe(start.lives);
+  expect(r.s.player.ladder).toBe(l.index);
+});
