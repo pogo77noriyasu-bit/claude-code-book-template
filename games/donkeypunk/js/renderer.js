@@ -336,9 +336,10 @@ DP.createRenderer = function (canvas) {
     text('DONKEY', cx, 110, { size: 32, align: 'center', color: '#ff2f6e', shadow: '#3a0a1a' });
     text('PUNK', cx, 152, { size: 40, align: 'center', color: '#ffd23c', shadow: '#5a3a00' });
     text('ドンキーパンク', cx, 204, { size: 20, align: 'center', ja: true, color: '#3cd8ff' });
-    spr.draw(ctx, 'punkStand', cx - 70, 300, { scale: 4 });
-    spr.draw(ctx, 'boss', cx + 10, 300, { scale: 3 });
-    spr.draw(ctx, 'girlWave', cx + 90, 300, { scale: 4, flip: true });
+    // 3 人の足元は 308(主人公のモヒカンの先がタイトル文字に触れない高さ)
+    spr.draw(ctx, 'punkStand', cx - 70, 308, { scale: 4 });
+    spr.draw(ctx, 'boss', cx + 10, 308, { scale: 3 });
+    spr.draw(ctx, 'girlWave', cx + 90, 308, { scale: 4, flip: true });
     if (Math.floor(g.frame / 30) % 2 === 0) text('PRESS ENTER', cx, 330, { size: 14, align: 'center' });
     text('← → 移動  ↑ ↓ ハシゴ  SPACE ジャンプ', cx, 380, { size: 14, align: 'center', ja: true, color: '#a8a8c8' });
     text('ENTER 開始・再挑戦  M 音 ON/OFF', cx, 404, { size: 14, align: 'center', ja: true, color: '#a8a8c8' });

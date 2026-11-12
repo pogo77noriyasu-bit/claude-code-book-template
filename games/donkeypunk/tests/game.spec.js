@@ -22,6 +22,8 @@ const snap = (page) => page.evaluate(() => window.__dp.snapshot());
 const step = (page, n) => page.evaluate((k) => window.__dp.step(k), n);
 // プレイヤーの当たり判定の高さ(config.player.height と同じ値)
 const DP_HEIGHT = 26;
+// プレイヤーのドット絵の高さ(モヒカン込み。20 ドット × 2)
+const SPRITE_HEIGHT = 40;
 
 // タイトルを開いて ENTER で開始し、プレイ中まで進める。
 // 敵の投下は止めておき、各テストで必要な障害物だけを出す。
@@ -495,8 +497,9 @@ test('17. 釘バットは鉄骨から浮いていて、当たり判定は見た�
     expect(it.w).toBe(info.w);
     expect(it.h).toBe(info.h);
     const surf = await page.evaluate(([gid, x]) => window.__dp.surfaceY(gid, x), [girder, it.x]);
-    // 下端が鉄骨から 34px 浮いている。立っているときの頭(26px)より上
-    expect(surf - it.y).toBeCloseTo(34, 5);
+    // 下端が鉄骨から 44px 浮いている。立っているときのモヒカンの先(40px)より上
+    expect(surf - it.y).toBeCloseTo(44, 5);
+    expect(surf - it.y).toBeGreaterThan(SPRITE_HEIGHT);
     expect(surf - it.y).toBeGreaterThan(DP_HEIGHT);
   }
 });
@@ -818,8 +821,8 @@ test('30. 切れたハシゴが配置され、正規のハシゴだけで最下�
   const broken = lv.ladders.filter((l) => l.broken);
   expect(broken.length).toBe(4);
   for (const l of broken) {
-    // 登れる上端は上の段の上面 + 44px。切れ端との間にすき間がある
-    expect(l.climbTopY).toBeCloseTo(l.topY + 44, 5);
+    // 登れる上端は上の段の上面 + 52px(モヒカンの先まで上の段に届かない)。切れ端との間にすき間がある
+    expect(l.climbTopY).toBeCloseTo(l.topY + 52, 5);
     expect(l.stubBottomY).toBeLessThan(l.climbTopY - 6);
     expect(l.climbTopY).toBeLessThan(l.bottomY - 12); // 途中までは登れる長さがある
   }
@@ -1179,4 +1182,137 @@ test('40. 開発用ショートカットはタイトル画面や READY 中には
   await page.keyboard.press('c');
   s = await step(page, 1);
   expect(s.state).toBe('ready');
+});
+
+// ---- 主人公のモヒカン(描画)と当たり判定 ----
+
+test('41. モヒカンは額から頭頂部・後頭部・首筋まで続く大きな扇形で、当たり判定とは別の大きさ', async ({ page }) => {
+  await startGame(page);
+  const info = await page.evaluate(() => {
+    const D = window.DP.sprites.DATA;
+    const rows = D.punkStand.rows;
+    const isHair = (c) => c === 'R' || c === 'r';
+    const faceTop = rows.findIndex((r) => /S/.test(r)); // 顔のいちばん上の行
+    // 顔の範囲(肌 S の左端・右端)。右向きなので右が額側、左が後頭部側
+    const faceRows = rows.slice(faceTop, faceTop + 4);
+    const faceLeft = Math.min(...faceRows.map((r) => r.indexOf('S')));
+    const faceRight = Math.max(...faceRows.map((r) => r.lastIndexOf('S')));
+    const hairAt = (rowFrom, rowTo, test) => {
+      let n = 0;
+      for (let y = rowFrom; y < rowTo; y++) for (let x = 0; x < rows[y].length; x++) if (isHair(rows[y][x]) && test(x)) n++;
+      return n;
+    };
+    const firstHairRow = rows.findIndex((r) => /[Rr]/.test(r));
+    return {
+      w: D.punkStand.w,
+      mohawkRows: faceTop - firstHairRow, // 顔より上の毛の行数
+      top: rows[0],
+      // 額より前(顔の右端より右)へ張り出した毛
+      front: hairAt(0, faceTop, (x) => x > faceRight),
+      // 頭頂部(顔の幅の真上)
+      crown: hairAt(0, faceTop, (x) => x >= faceLeft && x <= faceRight),
+      // 後頭部・首筋(顔の行で、顔より左 = 後ろ)
+      back: hairAt(faceTop, faceTop + 4, (x) => x < faceLeft),
+      // いちばん下の毛の行(首の付け根まで届いているか)
+      lowestHairRow: rows.reduce((m, r, i) => (/[Rr]/.test(r) ? i : m), -1),
+      faceTop,
+      sameHeadAll: ['punkWalk', 'punkJump'].every((n) => D[n].rows.slice(0, faceTop + 4).join() === rows.slice(0, faceTop + 4).join()),
+      climbRows: D.punkClimb.rows.findIndex((r) => /S/.test(r)),
+      spriteH: D.punkStand.h * window.DP.config.PIXEL,
+      hitH: window.DP.config.player.height,
+    };
+  });
+  // 以前の 3 行より 2 倍以上の高さ
+  expect(info.mohawkRows).toBeGreaterThanOrEqual(6);
+  // 頭頂部だけでなく、額の前・後頭部・首筋にも毛がある(扇形の前半と後半)
+  expect(info.crown).toBeGreaterThan(20);
+  expect(info.front).toBeGreaterThan(5);
+  expect(info.back).toBeGreaterThan(15);
+  expect(info.lowestHairRow).toBe(info.faceTop + 3); // 首の付け根(顔のいちばん下の行)まで続く
+  // 毛先がギザギザ: いちばん上の行は途切れ途切れ
+  expect(info.top.replace(/^\.+|\.+$/g, '')).toMatch(/R\.+R/);
+  // 歩き・ジャンプも同じ頭。ハシゴ用(背中向き)も同じ高さのトサカ
+  expect(info.sameHeadAll).toBe(true);
+  expect(info.climbRows).toBe(info.faceTop);
+  // 描画サイズ(40px)と当たり判定(26px)は別
+  expect(info.spriteH).toBe(SPRITE_HEIGHT);
+  expect(info.hitH).toBe(DP_HEIGHT);
+  expect(info.w).toBe(20); // 後頭部へ広げるため 20 ドット幅
+});
+
+test('42. 右向き・左向きのモヒカンが、左右反転した形で描かれる', async ({ page }) => {
+  await startGame(page);
+  // 画面のドットを読んで、頭の上(当たり判定より上の 12px)の赤いドットの位置を集める
+  const redDots = async (facing) => {
+    await page.evaluate((f) => { window.__dp.placePlayer('g0', 200); window.__dp.setFacing(f); }, facing);
+    const s = await step(page, 1);
+    await page.waitForTimeout(100); // 描画は requestAnimationFrame
+    return page.evaluate((p) => {
+      const ctx = document.getElementById('game').getContext('2d');
+      const x0 = Math.round(p.x) - 20;
+      const y0 = Math.round(p.y + 1) - 40; // ドット絵の上端(絵全体 40x40 を読む)
+      const img = ctx.getImageData(x0, y0, 40, 40).data;
+      const dots = [];
+      for (let y = 0; y < 40; y++) for (let x = 0; x < 40; x++) {
+        const i = (y * 40 + x) * 4;
+        const [r, g, b] = [img[i], img[i + 1], img[i + 2]];
+        if ((r === 255 && g === 42 && b === 42) || (r === 168 && g === 20 && b === 20)) dots.push(x + ',' + y);
+      }
+      return dots;
+    }, s.player);
+  };
+  const right = await redDots(1);
+  const left = await redDots(-1);
+  expect(right.length).toBeGreaterThan(300); // 大きな扇形(2x2 のドットがたくさん)
+  expect(left.length).toBe(right.length);
+  // 左向きは右向きをちょうど左右反転した形
+  const mirrored = right.map((d) => { const [x, y] = d.split(',').map(Number); return (39 - x) + ',' + y; }).sort();
+  expect(left.slice().sort()).toEqual(mirrored);
+});
+
+test('43. ハシゴの安全地帯では、モヒカンだけにビールが触れてもミスにならず、胴体に当たるとミス', async ({ page }) => {
+  const start = await startGame(page);
+  const lv = await page.evaluate(() => window.__dp.level());
+  const l = lv.ladders[0]; // g0→g1, x=110。g1 は右へ転がる
+  const run = (below) => page.evaluate(([lad, b]) => {
+    const dp = window.__dp;
+    dp.clearHazards();
+    dp.placePlayerLadder(lad.index, lad.topY + b);
+    const id = dp.spawnHazard('bottle', 'g1', lad.x - 40);
+    let s, touchedMohawk = false;
+    for (let i = 0; i < 120; i++) {
+      s = dp.step(1);
+      const h = s.hazards.find((x) => x.id === id);
+      if (s.state !== 'playing' || !h) break;
+      // ビール瓶(高さ 9px)とモヒカン(当たり判定の上 14px)が重なっているか
+      const p = s.player;
+      const mohawkTop = p.head - 14;
+      if (Math.abs(h.x - p.x) * 2 < 18 + 24 && h.y > mohawkTop && h.y - 9 < p.head) touchedMohawk = true;
+      if (h.x > lad.x + 40) break;
+    }
+    return { s, touchedMohawk };
+  }, [l, below]);
+
+  // 頭(当たり判定の上端)が上の段の上面より 1px 下: モヒカンは上の段の上へ突き出し、ビールが触れる
+  let r = await run(DP_HEIGHT + 1);
+  expect(r.touchedMohawk).toBe(true);
+  expect(r.s.state).toBe('playing');
+  expect(r.s.lives).toBe(start.lives);
+
+  // 胴体(当たり判定)が上の段の上へ出ていると当たってミス
+  r = await run(DP_HEIGHT - 4);
+  expect(r.s.state).toBe('dying');
+  expect(r.s.deathReason).toBe('hazard');
+});
+
+test('44. 鉄骨の上でも、胴体に転がってきたビールが当たればミス(当たり判定は従来どおり)', async ({ page }) => {
+  await startGame(page);
+  await page.evaluate(() => { window.__dp.placePlayer('g0', 200); window.__dp.spawnHazard('can', 'g0', 240); });
+  let s;
+  for (let i = 0; i < 80; i++) {
+    s = await step(page, 1);
+    if (s.state !== 'playing') break;
+  }
+  expect(s.state).toBe('dying');
+  expect(s.deathReason).toBe('hazard');
 });

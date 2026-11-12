@@ -104,18 +104,32 @@ DP.sprites = (function () {
     '..KKKKKK..............',
   ];
 
-  // 主人公(右向き)。12x16
+  // 主人公(右向き)。20x20(モヒカン 7 行 + 体 13 行)。
+  // モヒカンは 80 年代ハードコアパンクスの大きな扇形(半円)。額から頭頂部・後頭部を通って
+  // 首の付け根まで続き、中央がいちばん高く、前と後ろへ放射状にトゲが広がる。毛先はギザギザ。
+  // 後頭部へ広がるぶん、元の 12 幅の体を左右 4 ドットずつ広げて 20 幅にしている
+  // (左右同じだけ広げるので、反転しても顔・胴体・足元の位置は変わらない)。
+  // 当たり判定(config.player: 幅 14 × 高さ 26px)は顔から下の体だけで、モヒカンは含まない
   const HEAD = [
-    '.....RR.....',
-    '....RRR.....',
-    '....RRr.....',
-    '...SSRSSS...',
-    '...SSSSKS...',
-    '...SSSSSSG..',
-    '....SsSS....',
+    '.......R.R..R.......',
+    '....R..RRRR.RR..R...',
+    '....RR.RRRRRRR.RR...',
+    '.R..RRRRRRRRRRRR....',
+    '.RRRRRRRRRRRRRR.....',
+    '..RRRRRRrRrRrRR.....',
+    'RRRRRRRrRrRrRR......',
+    '.RRRRRRSSSSSS.......', // ここから顔。後頭部の毛
+    'RRRRRrRSSSSKS.......',
+    '.RRRRRRSSSSSSG......',
+    '..RRRrr.SsSS........', // 首筋の毛(扇形の後ろの端)
   ];
+  // 元の 12 幅の行を左右 4 ドットずつ広げる
+  const pad4 = (r) => '....' + r + '....';
+  // 主人公の 1 コマ = モヒカンと顔(HEAD)+ 体(12 幅で書いて広げる)
+  const punk = (bodyRows) => def(HEAD.concat(bodyRows.map(pad4)));
+
   const DATA = {
-    punkStand: def(HEAD.concat([
+    punkStand: punk([
       '...KKKKKK...',
       '..KKGKKKKS..',
       '..KKKKKKKS..',
@@ -125,8 +139,8 @@ DP.sprites = (function () {
       '...JJ.JJ....',
       '..BBB.BBB...',
       '..bbb.bbbb..',
-    ])),
-    punkWalk: def(HEAD.concat([
+    ]),
+    punkWalk: punk([
       '...KKKKKK...',
       '..KKGKKKKS..',
       '.SKKKKKKK...',
@@ -136,8 +150,8 @@ DP.sprites = (function () {
       '..JJ...JJ...',
       '.BBB...BBB..',
       '.bbb...bbbb.',
-    ])),
-    punkJump: def(HEAD.concat([
+    ]),
+    punkJump: punk([
       '.S.KKKKK.S..',
       '.SKKGKKKKS..',
       '..KKKKKKK...',
@@ -147,11 +161,16 @@ DP.sprites = (function () {
       '.BBB...JJ...',
       '.bbb..BBB...',
       '......bbbb..',
-    ])),
-    // 背中側(ハシゴ用)。左右反転してもう 1 コマにする
+    ]),
+    // 背中側(ハシゴ用)。左右反転してもう 1 コマにする。
+    // 後ろから見たモヒカンは細いトサカ(横向きと同じ 6 行の高さ・ギザギザの毛先)
     punkClimb: def([
+      '....R..R....',
+      '....RRRR....',
       '.....RR.....',
       '....RRRR....',
+      '....RRRR....',
+      '....RrrR....',
       '....RRRR....',
       '...SSRRSS...',
       '.S.SSSSSS...',
@@ -166,7 +185,7 @@ DP.sprites = (function () {
       '...JJ..BBB..',
       '..BBB..bbb..',
       '..bbb.......',
-    ]),
+    ].map(pad4)),
 
     // ゴリラ警官(正面)。24x24
     boss: def([
