@@ -18,7 +18,9 @@ DP.player = (function () {
       state: 'ground',
       girder: g,
       ladder: null,
-      peakY: 0, // 空中にいる間の最高点(落下距離の判定用)
+      // 空中に出た高さ(落下距離の判定用)。ジャンプなら踏み切った足元、踏み外しならその足場の高さ。
+      // 着地点がここより fatalFall を超えて低いと落下のミス(歩いても跳んでも同じ基準)
+      fallFromY: 0,
       walkTime: 0, // 歩きアニメ用
       climbTime: 0, // ハシゴアニメ用
       bat: 0, // 釘バットの残りステップ(0 = 持っていない)
@@ -65,7 +67,39 @@ DP.player = (function () {
     p.girder = null;
     p.vx = vx;
     p.vy = 0;
-    p.peakY = p.y;
+    p.fallFromY = p.y;
+  }
+
+  // リフト(kind: 'lift'。3 面)と隣の足場の間を歩いて乗り移れるか。乗り移れる鉄骨を返す(なければ null)。
+  // 移る先の上面が「足元から stepUp px 上」〜「ほぼ同じ高さ」のときだけ(低い所へは普通に落ちる)。
+  // リフトが関わらない鉄骨どうし(1・2 面)では何もしない
+  function stepAcross(level, from, p) {
+    const up = DP.config.lift ? DP.config.lift.stepUp : 0;
+    let best = null;
+    for (const g of level.girders) {
+      if (g === from || !geo.containsX(g, p.x)) continue;
+      if (from.kind !== 'lift' && g.kind !== 'lift') continue;
+      const s = geo.surfaceY(g, p.x);
+      if (s >= p.y - up && s <= p.y + 0.5 && (!best || Math.abs(s - p.y) < Math.abs(geo.surfaceY(best, p.x) - p.y))) best = g;
+    }
+    return best;
+  }
+
+  // 足場が消えた(リフトの板が上端で引き込まれた)ときなど、その場から落ちはじめる
+  function drop(p) {
+    if (p.state === 'ground') startFalling(p, 0);
+  }
+
+  // 下から上がってきたリフトの板 g に乗る(地上・空中のどちらからでも)。
+  // 空中から乗ったときは空中に出た高さ(fallFromY)からの落差で判定し、落下のミスなら true を返す
+  function landOn(p, g) {
+    const fell = p.state === 'air' ? geo.surfaceY(g, p.x) - p.fallFromY : 0;
+    p.state = 'ground';
+    p.girder = g;
+    p.vx = 0;
+    p.vy = 0;
+    p.y = geo.surfaceY(g, p.x);
+    return fell > cfg().fatalFall;
   }
 
   function clampToScreen(p) {
@@ -116,7 +150,8 @@ DP.player = (function () {
         p.girder = null;
         p.vx = dir * c.walkSpeed;
         p.vy = -c.jumpVelocity;
-        p.peakY = p.y;
+        // 落下距離は踏み切った高さから測る(最高点からではない。跳んで 48px まで降りても平気)
+        p.fallFromY = p.y;
         ev.jumped = true;
         return ev;
       }
@@ -127,7 +162,12 @@ DP.player = (function () {
         const prevX = p.x;
         const ok = phys.moveOnGirder(p, g, dir * c.walkSpeed);
         clampToScreen(p);
-        if (!ok && !geo.containsX(g, p.x)) {
+        const across = !ok && !geo.containsX(g, p.x) ? stepAcross(level, g, p) : null;
+        if (across) {
+          // リフトと隣の足場の間を歩いて乗り移った(段差 config.lift.stepUp まで)
+          p.girder = across;
+          p.y = geo.surfaceY(across, p.x);
+        } else if (!ok && !geo.containsX(g, p.x)) {
           // 鉄骨の端から踏み外した
           startFalling(p, dir * c.walkSpeed * 0.5);
         } else {
@@ -185,10 +225,9 @@ DP.player = (function () {
         height: c.height,
         clampX: true,
       });
-      p.peakY = Math.min(p.peakY, p.y);
       if (r.bumped) ev.bumped = true;
       if (r.landed) {
-        const fell = p.y - p.peakY;
+        const fell = p.y - p.fallFromY;
         p.state = 'ground';
         p.girder = r.landed;
         p.vx = 0;
@@ -213,5 +252,5 @@ DP.player = (function () {
     else p.y = geo.surfaceY(g, p.x);
   }
 
-  return { create, update, hitbox, batPhase, batHitbox, carry };
+  return { create, update, hitbox, batPhase, batHitbox, carry, drop, landOn };
 })();

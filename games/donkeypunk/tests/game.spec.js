@@ -1319,3 +1319,34 @@ test('44. 鉄骨の上でも、胴体に転がってきたビールが当たれ�
   expect(s.state).toBe('dying');
   expect(s.deathReason).toBe('hazard');
 });
+
+test('45. 落下のミスはジャンプの最高点ではなく踏み切った高さから測る: 1 面の段の間(52px 以上)は、どの段の端から外へ跳んで降りても今までどおり落下のミス。その場で跳ぶのは平気', async ({ page }) => {
+  // [足場, 立つ位置(端の少し内側), 跳ぶ向き]。どれも外へ跳ぶと 1 つ下の段へ 52〜64px 落ちる(いちばん差が小さいのは g5 の右端 → g4)
+  const EDGES = [['g5', 444, 'ArrowRight'], ['g4', 36, 'ArrowLeft'], ['g3', 444, 'ArrowRight'], ['g2', 36, 'ArrowLeft'], ['g1', 444, 'ArrowRight']];
+  for (const [id, x, key] of EDGES) {
+    await startGame(page);
+    await page.evaluate(([g, px]) => window.__dp.placePlayer(g, px), [id, x]);
+    // 本物のキーボードで外へ向かって跳ぶ
+    await page.keyboard.down(key);
+    await page.keyboard.press('Space');
+    let s = await step(page, 1);
+    await page.keyboard.up(key);
+    let landedOn = null;
+    for (let i = 0; i < 200 && s.state === 'playing'; i++) {
+      s = await step(page, 1);
+      if (s.player.state === 'ground') landedOn = s.player.girder;
+    }
+    expect(s.state, `${id} から ${key} へ跳んで降りる`).toBe('dying');
+    expect(s.deathReason).toBe('fall');
+    expect(landedOn, `${id} の 1 つ下の段に着地してミスになる`).not.toBe(id);
+  }
+  // その場で真上に跳んで同じ段に戻るのはミスにならない(着地点は踏み切った高さと同じ)
+  await startGame(page);
+  await page.evaluate(() => window.__dp.placePlayer('g1', 200));
+  await page.keyboard.press('Space');
+  let s = await step(page, 1);
+  for (let i = 0; i < 80; i++) s = await step(page, 1);
+  expect(s.state).toBe('playing');
+  expect(s.player.state).toBe('ground');
+  expect(s.player.girder).toBe('g1');
+});

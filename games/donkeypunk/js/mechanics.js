@@ -110,6 +110,240 @@ DP.mechanics = {
     },
   },
 
+  // 3 面: 解体用の鉄球(ステージデータの wreckingBall)。吊った点(pivot)から振り子のように左右に揺れる。
+  // 位置は通算ステップ g.frame だけで決まる(描画の renderer.js も同じ position を使うので、見た目と当たり判定がずれない)。
+  // 当たり判定は鉄球本体だけ(鎖・ワイヤーにはない)。本体は見た目と同じ 3 枚の矩形(12×20・20×12・16×16 の
+  // 中心をそろえた、ドットの丸)で、主人公の当たり判定がどれかに重なるとミス('hazard')。
+  wreckingBall: {
+    // 鉄球の中心の位置(画面のドットにそろえて整数にする)
+    position(wb, frame) {
+      const a = wb.swing * Math.sin((2 * Math.PI * frame) / wb.period);
+      return {
+        x: Math.round(wb.pivotX + Math.sin(a) * wb.length),
+        y: Math.round(wb.pivotY + Math.cos(a) * wb.length),
+      };
+    },
+    // 鉄球本体の当たり判定(geometry.overlaps の形 {x(中心), y(下端), w, h} の矩形 3 枚)
+    hitboxes(wb, frame) {
+      const { x, y } = this.position(wb, frame);
+      return [
+        { x, y: y + 10, w: 12, h: 20 }, // 縦長(x-6〜x+6、y-10〜y+10)
+        { x, y: y + 6, w: 20, h: 12 }, // 横長(x-10〜x+10、y-6〜y+6)
+        { x, y: y + 8, w: 16, h: 16 }, // 角を埋める正方形(x-8〜x+8、y-8〜y+8)
+      ];
+    },
+    update(ctx) {
+      const g = ctx.g;
+      const wb = g.level.stage.wreckingBall;
+      if (!wb || g.player.state === 'dead' || g.wreckingBallOff) return; // wreckingBallOff はテスト補助だけが立てる
+      const pb = DP.player.hitbox(g.player);
+      if (this.hitboxes(wb, g.frame).some((b) => DP.geometry.overlaps(pb, b))) ctx.killPlayer('hazard');
+    },
+  },
+
+  // 3 面: 空飛ぶパンクニワトリ(js/birds.js。ステージデータの birds.lines)。
+  // ラインごとに 1 羽ずつ: 最初は line.firstSpawn ステップ後、そのあとは config.bird.interval ごとに、
+  // 飛んでくる側の画面の外から出る(前の鳥がまだ画面にいるラインは、消えるまで次を出さない)。
+  // 主人公が胴体の当たり判定に触れるとミス('hazard')。釘バット(config.bird.batSmash)の攻撃範囲に入ると倒れる。
+  // 出現の経過と鳥はレベルに持つので、ミスして組み立て直すと最初から数え直す(鳥も消える)
+  birds: {
+    // 鳥の状態をレベルに用意する(最初の update と、テスト補助で鳥を出すときに呼ぶ)
+    init(lv) {
+      lv.birds = [];
+      lv.birdTimers = lv.stage.birds.lines.map(() => 0);
+      lv.birdSpawned = lv.stage.birds.lines.map(() => false);
+    },
+    update(ctx) {
+      const g = ctx.g;
+      const lv = g.level;
+      const def = lv.stage.birds;
+      if (!def) return;
+      const c = DP.config.bird;
+      if (!lv.birds) this.init(lv);
+      def.lines.forEach((line, i) => {
+        lv.birdTimers[i]++;
+        const due = lv.birdTimers[i] >= (lv.birdSpawned[i] ? c.interval : line.firstSpawn);
+        if (g.birdsEnabled && due && !lv.birds.some((b) => b.line === i)) {
+          lv.birds.push(DP.birds.create(line, i));
+          lv.birdTimers[i] = 0;
+          lv.birdSpawned[i] = true;
+        }
+      });
+      for (const b of lv.birds) DP.birds.update(b);
+      const p = g.player;
+      // 釘バットで倒す(体に当たるより先に判定する。ビール・スカルと同じ)
+      const bb = c.batSmash ? DP.player.batHitbox(p) : null;
+      if (bb) {
+        for (const b of lv.birds) {
+          if (b.dead || !DP.geometry.overlaps(bb, DP.birds.hitbox(b))) continue;
+          b.dead = true;
+          g.effects.push({ x: b.x, y: b.y - 8, t: 0, type: 'bird', color: b.color });
+          ctx.addScore(DP.config.score.bird, b.x, b.y - 24);
+          ctx.audio.play('smash');
+        }
+      }
+      lv.birds = lv.birds.filter((b) => !b.dead);
+      if (p.state === 'dead') return;
+      const pb = DP.player.hitbox(p);
+      if (lv.birds.some((b) => DP.geometry.overlaps(pb, DP.birds.hitbox(b)))) {
+        ctx.killPlayer('hazard');
+        return;
+      }
+      // ジャンプで跳び越えたら 100 点(1 面のビールを跳び越えたときと同じ処理 ctx.checkJumpOver。1 羽につき 1 回)。
+      // その鳥のラインの床(屋上の端のがれき y152・K1 y150 も ① の床なので ±jumpOverFloor px まで)から
+      // ジャンプしたときだけ。歩いて踏み外して落ちている間や、別の高さの足場で跳んだとき、
+      // 立っている・リフトで運ばれているだけのときは入らない
+      const tol = c.jumpOverFloor;
+      for (const b of lv.birds) {
+        ctx.checkJumpOver(b, (pl) => pl.jumpFromY != null && Math.abs(pl.jumpFromY - b.y) <= tol);
+      }
+    },
+  },
+
+  // 3 面: リフト(ステージデータの lifts)。
+  //   'loop'   … 循環リフト: 板が bottom から top へ上がり続ける。top で板が消え、乗っていた主人公はその場から落ちる。
+  //   'shuttle'… 往復リフト: 床 1 つが stops の高さを往復し、各階で止まる。
+  // リフトの板・床は「動く鉄骨」(kind: 'lift')としてレベルの girders に入れるので、着地・天井・歩く処理は
+  // ほかの鉄骨と同じものが使える。動かすのはこの仕掛けで、乗っている主人公も一緒に上下へ運ぶ。
+  // 上がってくる板が主人公の足元を通り過ぎるときは、その板に乗せる(地面で待っていれば乗れる。
+  // 空中から乗った場合は落ちた高さで落下のミスを判定する)。
+  // 速さ・止まる時間は config.lift の周回ごとの値。setup はステージを組み立てるたびに game.js が呼ぶ。
+  lifts: {
+    // 周回ごとの値を選ぶ(1 周目 = [0]、3 周目以降 = 最後の値)
+    byRound(list, round) {
+      return list[Math.min(list.length - 1, Math.max(0, (round || 1) - 1))];
+    },
+    setup(level, g) {
+      const c = DP.config.lift;
+      level.lifts = [];
+      for (const def of level.stage.lifts || []) {
+        const L = { def, id: def.id, type: def.type, x1: def.x1, x2: def.x2, plates: [], serial: 0 };
+        if (def.type === 'loop') {
+          L.speed = this.byRound(c.loop.speed, g.round);
+          L.spacing = c.loop.spacing;
+          // 地面の高さに次の板が firstArrival ステップ後に来るよう、いちばん下の板の位置を決めて、上へ並べる
+          let y = def.bottom - L.spacing + L.speed * (def.firstArrival || 0);
+          while (y >= def.top) {
+            this.addPlate(level, L, y);
+            y -= L.spacing;
+          }
+        } else {
+          L.speed = this.byRound(c.shuttle.speed, g.round);
+          L.pauseFrames = this.byRound(c.shuttle.pause, g.round);
+          L.stops = def.stops.slice().sort((a, b) => b - a); // 下(y が大きい)から上へ
+          const st = { y: L.stops[0], dir: -1, pause: L.pauseFrames, arrivedUp: null, arrived: null, arrivedDir: 0 };
+          // 決まった階に決まった向きで着くのが、決まったステップ後になるよう、動きを先に進めておく。
+          //   upAt     … 真ん中の階(stops が 3 つ以上のとき)へ「上り」で着くステップ
+          //   bottomAt … いちばん下の階へ(上から降りてきて)着くステップ。stops が 2 つの往復でも使える
+          let sync = null;
+          if (def.bottomAt !== undefined) sync = { at: def.bottomAt, y: L.stops[0], dir: 1 };
+          else if (def.upAt !== undefined) sync = { at: def.upAt, y: L.stops[1], dir: -1 };
+          if (sync) {
+            const sim = Object.assign({}, st);
+            let first = -1;
+            let t = 0;
+            for (; t < 20000; t++) {
+              this.stepShuttle(L, sim);
+              if (sim.arrived === sync.y && sim.arrivedDir === sync.dir) {
+                if (first < 0) first = t + 1;
+                else break;
+              }
+            }
+            const cycle = t + 1 - first;
+            const n = (((first - sync.at) % cycle) + cycle) % cycle;
+            for (let i = 0; i < n; i++) this.stepShuttle(L, st);
+          }
+          L.state = st;
+          this.addPlate(level, L, st.y);
+        }
+        level.lifts.push(L);
+      }
+    },
+    // 動く鉄骨を 1 枚足す
+    addPlate(level, L, y) {
+      const gd = { id: L.id + (L.serial++), kind: 'lift', lift: L.id, x1: L.x1, x2: L.x2, y1: y, y2: y, index: level.girders.length };
+      level.girders.push(gd);
+      level.byId[gd.id] = gd;
+      L.plates.push(gd);
+      return gd;
+    },
+    removePlate(level, L, gd) {
+      level.girders.splice(level.girders.indexOf(gd), 1);
+      delete level.byId[gd.id];
+      L.plates.splice(L.plates.indexOf(gd), 1);
+    },
+    // 往復リフトを 1 ステップ進める(st: { y, dir(-1 = 上 / 1 = 下), pause, arrivedUp, arrived, arrivedDir })。
+    // 階に着いたステップだけ arrived(その階)と arrivedDir(着いたときの向き)が入る(上りなら arrivedUp も)
+    stepShuttle(L, st) {
+      st.arrivedUp = null;
+      st.arrived = null;
+      st.arrivedDir = 0;
+      if (st.pause > 0) {
+        st.pause--;
+        return;
+      }
+      st.y += st.dir * L.speed;
+      // 進む向きにある、いちばん近い階
+      const ahead = L.stops.filter((y) => (st.dir < 0 ? y < st.y + L.speed : y > st.y - L.speed));
+      const next = st.dir < 0 ? Math.max(...ahead) : Math.min(...ahead);
+      if ((st.dir < 0 && st.y <= next) || (st.dir > 0 && st.y >= next)) {
+        st.y = next;
+        st.pause = L.pauseFrames;
+        st.arrived = next;
+        st.arrivedDir = st.dir;
+        if (st.dir < 0) st.arrivedUp = next;
+        // いちばん上・いちばん下の階で折り返す
+        if (next === L.stops[L.stops.length - 1] || next === L.stops[0]) st.dir = -st.dir;
+      }
+    },
+    // 板を oldY から newY へ動かし、乗っている主人公を運ぶ。上がる板が足元を通り過ぎたら乗せる
+    movePlate(ctx, gd, oldY, newY) {
+      gd.y1 = gd.y2 = newY;
+      const p = ctx.g.player;
+      if (p.state === 'ground' && p.girder === gd) {
+        p.y = newY;
+        return;
+      }
+      if (newY >= oldY || !DP.geometry.containsX(gd, p.x)) return;
+      // 空中では落ちている(上向きに飛んでいない)ときだけ。ジャンプで踏み切った直後に乗せ直さない
+      const falling = p.state === 'air' && p.vy >= 0;
+      if ((falling || p.state === 'ground') && p.y >= newY - 0.01 && p.y <= oldY + 0.5) {
+        const died = DP.player.landOn(p, gd);
+        if (died) ctx.killPlayer('fall');
+      }
+    },
+    update(ctx) {
+      const level = ctx.g.level;
+      for (const L of level.lifts || []) {
+        if (L.type === 'loop') {
+          for (const gd of L.plates.slice()) this.movePlate(ctx, gd, gd.y1, gd.y1 - L.speed);
+          // 上端を越えた板は消える(乗っていた主人公はその場から落ちる)
+          for (const gd of L.plates.slice()) {
+            if (gd.y1 < L.def.top) {
+              const p = ctx.g.player;
+              if (p.state === 'ground' && p.girder === gd) DP.player.drop(p);
+              this.removePlate(level, L, gd);
+            }
+          }
+          // いちばん下の板が間隔ぶん上がったら、地面の高さに次の板を出す(地面で待つ主人公はここで乗る)
+          let lowest = Math.max(...L.plates.map((x) => x.y1), -Infinity);
+          while (lowest <= L.def.bottom - L.spacing) {
+            const y = lowest + L.spacing;
+            const gd = this.addPlate(level, L, L.def.bottom);
+            this.movePlate(ctx, gd, L.def.bottom, y);
+            lowest = y;
+          }
+        } else {
+          const gd = L.plates[0];
+          const old = L.state.y;
+          this.stepShuttle(L, L.state);
+          this.movePlate(ctx, gd, old, L.state.y);
+        }
+        if (ctx.g.state !== 'playing') return;
+      }
+    },
+  },
+
   // 1 面: ゴリラ警官がビール瓶・缶を持ち上げて、鉄骨へ転がす。
   // (ステージデータの boss.throwX / throwInterval / canRatio を使う)
   beerThrow: {

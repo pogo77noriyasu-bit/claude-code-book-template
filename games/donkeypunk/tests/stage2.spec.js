@@ -45,7 +45,7 @@ async function climbRoute(page, route) {
 
 test('S1. 面の並びは 1 面 → 2 面で、2 面は平らな足場・端から端までの中段の足場・コンベア・ハシゴでできている', async ({ page }) => {
   await startAtStage(page, STAGE2);
-  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse']);
+  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse', 'squat']);
   const s = await snap(page);
   expect(s.stageId).toBe('livehouse');
   expect(s.message).toBe('');
@@ -120,7 +120,7 @@ test('S2. 床からガールの足場まで、ハシゴだけでつながるル�
   }
 });
 
-test('S3. 実際のキー操作で 2 面を左ルートで登りきり、クリアすると 1 面(2 周目)へ戻る', async ({ page }) => {
+test('S3. 実際のキー操作で 2 面を左ルートで登りきり、クリアすると 3 面へ進む(周回数はそのまま)', async ({ page }) => {
   await startAtStage(page, STAGE2);
   // 床を右へ → 下段コンベアを左へ → 左の足場 → 中段コンベア(左)を右へ → 最上段 → ガールの足場
   let s = await climbRoute(page, LEFT_ROUTE);
@@ -130,13 +130,13 @@ test('S3. 実際のキー操作で 2 面を左ルートで登りきり、クリ�
   expect(s.score).toBeGreaterThan(scoreBefore);
   for (let i = 0; i < 900 && s.state === 'escape'; i++) s = await step(page, 1);
   expect(s.state).toBe('clear');
-  // ENTER で 1 面へ戻り、周回数が増える
+  // ENTER で 3 面へ進む(1 面に戻って周回数が増えるのは 3 面のクリア後)
   s = await step(page, 160);
   await page.keyboard.press('Enter');
   s = await step(page, 1);
   expect(s.state).toBe('ready');
-  expect(s.stageId).toBe('girders');
-  expect(s.round).toBe(2);
+  expect(s.stageId).toBe('squat');
+  expect(s.round).toBe(1);
 });
 
 test('S4. 実際のキー操作で 2 面を中央ルートでも登りきれる', async ({ page }) => {
@@ -203,6 +203,21 @@ test('S6. 中段の足場は端から端まで歩いても落ちない(画面の
   expect(s.deathReason).toBe('fall');
 });
 
+test('S6b. 落下のミスを踏み切った高さから測るようにしても、ガールの足場の端から外へ跳んで最上段へ降りると今までどおり落下のミス(78px 落ちる)', async ({ page }) => {
+  for (const [x, key] of [[298, 'ArrowRight'], [182, 'ArrowLeft']]) {
+    await startAtStage(page, STAGE2);
+    await page.evaluate((px) => { window.__dp.setBossEnabled(false); window.__dp.placePlayer('top', px); }, x);
+    // 本物のキーボードで外へ向かって跳ぶ
+    await page.keyboard.down(key);
+    await page.keyboard.press('Space');
+    let s = await step(page, 1);
+    await page.keyboard.up(key);
+    for (let i = 0; i < 200 && s.state === 'playing'; i++) s = await step(page, 1);
+    expect(s.state, `ガールの足場の x=${x} から ${key}`).toBe('dying');
+    expect(s.deathReason).toBe('fall');
+  }
+});
+
 test('S7. 2 面の足場・コンベア予定地・ハシゴ・逃走用ハシゴが画面に描かれる', async ({ page }) => {
   await startAtStage(page, STAGE2);
   await page.waitForTimeout(100); // 描画は requestAnimationFrame なので 1 コマ待つ
@@ -248,7 +263,7 @@ test('S8. 2 面の釘バットは通り道から外れた場所に浮いてい�
   }
 });
 
-test('S9. 開発用ショートカット: ?dev で 2 キーを押すと 2 面から、1 キーで 1 面から始められる(?dev なしでは効かない)', async ({ page }) => {
+test('S9. 開発用ショートカット: ?dev で 2 キーを押すと 2 面から、1 キーで 1 面から、3 キーで 3 面から始められる(?dev なしでは効かない)', async ({ page }) => {
   // ?dev なし: 2 キーは効かない
   await page.goto('./?test');
   await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
@@ -277,10 +292,16 @@ test('S9. 開発用ショートカット: ?dev で 2 キーを押すと 2 面か
   expect(s.state).toBe('ready');
   expect(s.stageId).toBe('girders');
 
-  // 存在しない面(3 キー)は何もしない
+  // 3 キー → 3 面の READY
   await page.keyboard.press('3');
   s = await snap(page);
-  expect(s.stageId).toBe('girders');
+  expect(s.stageId).toBe('squat');
+  expect(s.message).toBe('STAGE 3');
+
+  // 存在しない面(4 キー)は何もしない
+  await page.keyboard.press('4');
+  s = await snap(page);
+  expect(s.stageId).toBe('squat');
   expect(s.state).toBe('ready');
 });
 

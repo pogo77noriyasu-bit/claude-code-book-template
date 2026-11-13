@@ -77,7 +77,8 @@ for (const name of ['oneTwo', 'proto']) {
   });
 }
 
-test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・2 周目で同じ曲。面の切り替えで 2 曲が重ならない', async ({ page }) => {
+test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・3 面・2 周目で同じ曲。面の切り替えで 2 曲が重ならない', async ({ page }) => {
+  test.setTimeout(120000); // 3 つの面を 1 ステップずつ確かめながら回るので長くかかる
   await page.goto('./?test');
   await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
   expect(await music(page)).toBe(null); // タイトルでは流さない
@@ -92,9 +93,9 @@ test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・
   expect(s.stageIndex).toBe(0);
   expect(await music(page)).toBe('main');
 
-  // 1 面 → 2 面 → 1 面(2 周目)とクリアしていく。どの時点でも流れている BGM は 1 つ以下
+  // 1 面 → 2 面 → 3 面 → 1 面(2 周目)とクリアしていく。どの時点でも流れている BGM は 1 つ以下
   const seen = [];
-  for (const expected of [1, 0]) {
+  for (const expected of [1, 2, 0]) {
     await page.evaluate(() => { window.__dp.clearHazards(); window.__dp.placePlayer('top', 240); });
     await step(page, 1);
     await page.evaluate(() => window.__dp.placePlayer('top', 205));
@@ -114,7 +115,7 @@ test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・
     seen.push([s.stageIndex, s.round]);
     await page.evaluate(() => window.__dp.setBossEnabled(false));
   }
-  expect(seen).toEqual([[1, 1], [0, 2]]);
+  expect(seen).toEqual([[1, 1], [2, 1], [0, 2]]);
 });
 
 test('M4. 釘バット使用中は釘バットの BGM が優先され、切れると通常の BGM に戻る(重ならない)', async ({ page }) => {

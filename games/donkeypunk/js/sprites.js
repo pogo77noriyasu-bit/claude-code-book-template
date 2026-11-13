@@ -33,7 +33,9 @@ DP.sprites = (function () {
     t: '#8e5626', // バットの木(影)
     w: '#f6d29a', // バットの木のつや
     O: '#ff8a1e', // オレンジ(炎)
-    e: '#d8e4f0', // ドクロの影(青白い白)
+    e: '#d8e4f0', // ドクロの影(青白い白)。パンクニワトリの羽の影にも使う
+    U: '#3a8cff', // 青(ニワトリのトサカ)
+    V: '#3cd04a', // 緑(ニワトリのトサカ)
   };
 
   // 文字列の配列 → { w, h, rows }(短い行は右を透明で埋める)
@@ -439,6 +441,41 @@ DP.sprites = (function () {
   DATA.bossCarry = combine(DATA.boss, DATA.bossUp, 24);
   DATA.bossCarryWalk0 = withLegs(DATA.bossCarry, BOSS_LEGS_A);
   DATA.bossCarryWalk1 = withLegs(DATA.bossCarry, BOSS_LEGS_B);
+
+  // 空飛ぶパンクニワトリ(3 面の敵)。12x11・右向き(左へ飛ぶときは左右反転)。白い体に、モヒカンのように逆立った
+  // 3 段のトサカ(X をラインの色に置き換える)、オレンジのくちばしと足、赤い肉ぜん(r)。羽を上げた姿・下げた姿の 2 枚で羽ばたく。
+  // 胴体(4〜8 行目)の形と大きさは 2 枚とも同じで、違うのは羽だけ(当たり判定は胴体の中の小さな矩形。js/birds.js)
+  const BIRD_UP = [
+    '.......X..X.',
+    '..W....XX.X.',
+    '.WW....XXXX.',
+    '.WWW...WWWW.',
+    '..WWWWWWWKWO',
+    '.WWWWWWWWWOO',
+    'WWWWWWWWWWr.',
+    '.WWWWWWWWW..',
+    '..eWWWWWe...',
+    '....O.O.....',
+    '............',
+  ];
+  const BIRD_DOWN = [
+    '.......X..X.',
+    '.......XX.X.',
+    '.......XXXX.',
+    '.......WWWW.',
+    '..WWWWWWWKWO',
+    '.WWWWWWWWWOO',
+    'WWWWeeeWWWr.',
+    '.WWWeWeWWW..',
+    '..eWWWWWe...',
+    '...WWeO.O...',
+    '....We......',
+  ];
+  const BIRD_COMB = { blue: 'U', red: 'R', yellow: 'Y', green: 'V' };
+  for (const [color, ch] of Object.entries(BIRD_COMB)) {
+    DATA['bird_' + color + '_up'] = def(BIRD_UP.map((r) => r.replace(/X/g, ch)));
+    DATA['bird_' + color + '_down'] = def(BIRD_DOWN.map((r) => r.replace(/X/g, ch)));
+  }
 
   // 描画を速くするため、スプライトごと(左右反転ごと)にオフスクリーンキャンバスへ焼いておく
   const cache = {};

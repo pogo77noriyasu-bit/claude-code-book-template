@@ -30,12 +30,16 @@ DP.createRenderer = function (canvas) {
     ctx.fillText(str, x, y);
   }
 
-  function drawBackground(frame) {
+  function drawBackground(frame, stage) {
     ctx.fillStyle = '#05040f';
     ctx.fillRect(0, 0, C.WIDTH, C.HEIGHT);
     for (const s of stars) {
       ctx.fillStyle = s.c;
       ctx.fillRect(Math.round(s.x), Math.round(s.y), 2, 2);
+    }
+    if (stage && stage.background === 'demolition') {
+      drawDemolition();
+      return;
     }
     // 遠くのビル街のシルエット
     ctx.fillStyle = '#120f2a';
@@ -49,6 +53,36 @@ DP.createRenderer = function (canvas) {
         if ((i * 7 + wy + Math.floor(frame / 90)) % 5 === 0) ctx.fillRect(bx[i] + 10, wy, 6, 6);
       }
     }
+  }
+
+  // 3 面の背景: 解体途中のビルの壁(上の縁がギザギザに崩れ、窓の穴と鉄筋が見える)
+  const WALLS = [
+    { x: 0, w: 60, top: 300 }, { x: 60, w: 70, top: 230 }, { x: 130, w: 60, top: 270 },
+    { x: 190, w: 90, top: 210 }, { x: 280, w: 60, top: 250 }, { x: 340, w: 70, top: 190 }, { x: 410, w: 70, top: 260 },
+  ];
+  function drawDemolition() {
+    for (const [i, wl] of WALLS.entries()) {
+      ctx.fillStyle = '#1b1a26';
+      ctx.fillRect(wl.x, wl.top, wl.w, C.HEIGHT - wl.top);
+      // 崩れた上の縁(8px ごとに高さを変える)
+      for (let x = wl.x; x < wl.x + wl.w; x += 8) {
+        const d = ((x * 7 + i * 13) % 5) * 4;
+        ctx.fillRect(x, wl.top - d, 8, d);
+      }
+      // 窓の穴(壁の色より暗く)
+      ctx.fillStyle = '#0a0912';
+      for (let y = wl.top + 16; y < C.HEIGHT - 40; y += 34) {
+        for (let x = wl.x + 10; x + 12 < wl.x + wl.w; x += 22) ctx.fillRect(x, y, 12, 16);
+      }
+      // 崩れた所から飛び出した鉄筋
+      ctx.fillStyle = '#4a3a30';
+      ctx.fillRect(wl.x + 14, wl.top - 18, 2, 18);
+      ctx.fillRect(wl.x + wl.w - 18, wl.top - 12, 2, 12);
+    }
+    // 壁のスプレーの落書き(見た目だけ)
+    ctx.fillStyle = '#5a1f3a';
+    ctx.fillRect(28, 470, 30, 3);
+    ctx.fillRect(196, 380, 36, 3);
   }
 
   function drawLadder(l) {
@@ -127,6 +161,99 @@ DP.createRenderer = function (canvas) {
     }
   }
 
+  // 3 面のがれき(崩れたコンクリートの塊)。乗れる上の面は x1〜x2 にまっすぐ描き(当たり判定と同じ範囲)、
+  // 下側だけを欠けた形にして、崩れた塊らしく見せる
+  function drawRubble(g, colors) {
+    const col = colors || DEFAULT_GIRDER_COLORS;
+    const T = C.GIRDER_THICKNESS;
+    const y = Math.round(g.y1);
+    const w = g.x2 - g.x1;
+    ctx.fillStyle = col.body;
+    ctx.fillRect(g.x1, y, w, T);
+    // 下側の欠け(4px ごとに 0〜4px 下へはみ出す。端は少し内側だけ)
+    for (let x = g.x1 + 2; x < g.x2 - 2; x += 4) {
+      const d = ((x * 5 + y) % 3) * 2;
+      ctx.fillRect(x, y + T, 4, d);
+    }
+    ctx.fillStyle = col.top;
+    ctx.fillRect(g.x1, y, w, 1);
+    // ひび
+    ctx.fillStyle = col.bottom;
+    ctx.fillRect(g.x1 + Math.floor(w / 3), y + 2, 1, 4);
+    ctx.fillRect(g.x1 + Math.floor(w / 3) + 1, y + 5, 3, 1);
+  }
+
+  // 3 面のリフトの板・床(黄と黒の工事しま模様)
+  function drawLiftPlate(g) {
+    const T = C.GIRDER_THICKNESS;
+    const y = Math.round(g.y1);
+    ctx.fillStyle = '#ffd23c';
+    ctx.fillRect(g.x1, y, g.x2 - g.x1, T);
+    ctx.fillStyle = '#15141c';
+    for (let x = g.x1 + 2; x < g.x2 - 2; x += 8) ctx.fillRect(x, y + 2, 4, T - 3);
+    ctx.fillStyle = '#fff3b0';
+    ctx.fillRect(g.x1, y, g.x2 - g.x1, 1);
+  }
+
+  // 3 面のリフトの縦穴(鉄骨・リフトの板より奥に描く)
+  //   循環リフト: 左右のレールと、上端で板を引き込む機械の箱(黄黒のしま)・地面の差し込み口
+  //   往復リフト: 上の巻き上げ機の箱と、床を吊る 2 本のワイヤー
+  function drawLiftShafts(level, frame) {
+    for (const L of level.lifts || []) {
+      const d = L.def;
+      if (L.type === 'loop') {
+        ctx.fillStyle = '#3b3a48';
+        ctx.fillRect(L.x1 - 4, d.top - 16, 2, d.bottom - d.top + 16);
+        ctx.fillRect(L.x2 + 2, d.top - 16, 2, d.bottom - d.top + 16);
+        // 上端の機械の箱(板はここで引き込まれて消える)
+        const by = d.top - 30;
+        ctx.fillStyle = '#2a2933';
+        ctx.fillRect(L.x1 - 6, by, L.x2 - L.x1 + 12, 22);
+        for (let x = L.x1 - 6; x < L.x2 + 6; x += 8) {
+          ctx.fillStyle = Math.floor((x - L.x1) / 8) % 2 === 0 ? '#ffd23c' : '#15141c';
+          ctx.fillRect(x, by + 18, 8, 4);
+        }
+        // 回る歯車(見た目だけ)
+        ctx.fillStyle = '#9a9aae';
+        const k = Math.floor(frame / 6) % 2;
+        ctx.fillRect((L.x1 + L.x2) / 2 - 5, by + 5, 10, 10);
+        ctx.fillStyle = '#2a2933';
+        ctx.fillRect((L.x1 + L.x2) / 2 - 1 - (k ? 3 : 0), by + 9, 2, 2);
+        ctx.fillRect((L.x1 + L.x2) / 2 - 1 + (k ? 3 : 0), by + 9, 2, 2);
+      } else {
+        const top = Math.min(...L.stops) - 60;
+        ctx.fillStyle = '#2a2933';
+        ctx.fillRect(L.x1 - 4, top, L.x2 - L.x1 + 8, 16);
+        ctx.fillStyle = '#ffd23c';
+        ctx.fillRect(L.x1 - 4, top + 14, L.x2 - L.x1 + 8, 2);
+        const py = L.plates[0] ? Math.round(L.plates[0].y1) : L.stops[0];
+        ctx.fillStyle = '#8a8a9e';
+        ctx.fillRect(L.x1 + 6, top + 16, 1, py - top - 16);
+        ctx.fillRect(L.x2 - 7, top + 16, 1, py - top - 16);
+      }
+    }
+  }
+
+  // 解体用の鉄球(3 面)。屋上の下から吊られて左右に揺れる。位置は当たり判定と同じ計算(DP.mechanics.wreckingBall)。
+  // 本体の 3 枚の矩形は当たり判定(hitboxes)と同じ大きさ。ワイヤーには当たり判定がない
+  function drawWreckingBall(wb, frame) {
+    const { x: bx, y: by } = DP.mechanics.wreckingBall.position(wb, frame);
+    // ワイヤー(2px ごとの点で描く)
+    ctx.fillStyle = '#8a8a9e';
+    const n = Math.floor(wb.length / 3);
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      ctx.fillRect(Math.round(wb.pivotX + (bx - wb.pivotX) * t), Math.round(wb.pivotY + (by - wb.pivotY) * t), 1, 2);
+    }
+    // 鉄球(丸をドットで)
+    ctx.fillStyle = '#6a6a78';
+    ctx.fillRect(bx - 6, by - 10, 12, 20);
+    ctx.fillRect(bx - 10, by - 6, 20, 12);
+    ctx.fillRect(bx - 8, by - 8, 16, 16);
+    ctx.fillStyle = '#b4b4c4'; // 光っている所
+    ctx.fillRect(bx - 6, by - 6, 4, 4);
+  }
+
   // 爆音アンプの下の格子の台(錆びた鉄骨の X 字の組み合わせ)。見た目だけ
   function drawAmpStand(a, colors) {
     const col = colors || DEFAULT_GIRDER_COLORS;
@@ -193,6 +320,14 @@ DP.createRenderer = function (canvas) {
 
   // 鉄骨は 16px ごとの段々で描く(ドット絵らしい斜め)。kind: 'conveyor' はベルトコンベアとして描く
   function drawGirder(g, colors, frame) {
+    if (g.kind === 'lift') {
+      drawLiftPlate(g);
+      return;
+    }
+    if (g.kind === 'rubble') {
+      drawRubble(g, colors);
+      return;
+    }
     if (g.kind === 'conveyor') {
       drawConveyor(g, frame || 0);
       return;
@@ -371,6 +506,18 @@ DP.createRenderer = function (canvas) {
   // ビールが割れた破片(瓶は緑、缶は赤と銀)
   function drawEffects(effects) {
     for (const e of effects) {
+      if (e.type === 'bird') {
+        // パンクニワトリが倒れる: 白い羽根とトサカの色の羽根が舞い散る
+        const comb = { blue: '#3a8cff', red: '#ff2a2a', yellow: '#ffd23c', green: '#3cd04a' }[e.color] || '#ffffff';
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + 0.4;
+          const r = e.t * 1.5;
+          ctx.fillStyle = i % 3 === 0 ? comb : '#ffffff';
+          ctx.fillRect(Math.round(e.x + Math.cos(a) * r), Math.round(e.y + Math.sin(a) * r + e.t * e.t * 0.03), 3, 2);
+        }
+        if (e.t < 6) text('BOK!', e.x, e.y - 18, { size: 8, align: 'center', color: '#ffffff' });
+        continue;
+      }
       if (e.type === 'skull') {
         // ファイヤースカルが砕ける: 白い骨のかけらが飛び散り、青い炎がしぼんで消える
         if (e.t < 16) drawSkullFlame(e.x, e.y + 8, e.t * 3, Math.max(0, 1 - e.t / 16));
@@ -531,15 +678,17 @@ DP.createRenderer = function (canvas) {
 
   function render(game) {
     const g = game.data;
-    drawBackground(g.frame);
+    drawBackground(g.frame, g.level && g.level.stage);
 
     if (g.level) {
       const stage = g.level.stage;
       if (stage.amp) drawAmpStand(stage.amp, stage.girderColors); // 格子の台は鉄骨・ハシゴより奥
       drawEscapeLadders(g.level);
+      drawLiftShafts(g.level, g.frame);
       for (const l of g.level.ladders) drawLadder(l);
       for (const gd of g.level.girders) drawGirder(gd, stage.girderColors, g.frame);
       if (stage.amp) drawAmp(stage.amp, stage.girderColors, g.frame, g.level.ampFlare || 0);
+      if (stage.wreckingBall) drawWreckingBall(stage.wreckingBall, g.frame);
       if (g.state === 'escape' && g.escape) {
         drawEscape(g.escape);
       } else {
@@ -550,6 +699,8 @@ DP.createRenderer = function (canvas) {
       drawItems(g.items, g.frame);
       for (const h of g.hazards) drawHazard(h);
       for (const e of g.enemies) drawSkull(e);
+      // 3 面のパンクニワトリ(羽ばたきの 2 枚を入れ替える。左へ飛ぶときは左右反転)
+      for (const b of (g.level.birds || [])) spr.draw(ctx, `bird_${b.color}_${DP.birds.wing(b)}`, b.x, b.y, { flip: b.dir < 0 });
       drawPlayer(g.player, g.frame, g.state, g.timer, g.deathReason);
       drawHeldBat(g.player, g.frame);
       drawEffects(g.effects);
@@ -558,7 +709,7 @@ DP.createRenderer = function (canvas) {
     drawHud(g);
     // 開発用ショートカットが有効なときだけ、画面の下に目印を出す
     // (いちばん下の床 y=540〜548 に重ならないよう、その下に出す)
-    if (g.devMode) text('DEV  C:クリア演出  1/2:面を選んで開始', 8, C.HEIGHT - 11, { size: 10, ja: true, color: '#ffd23c' });
+    if (g.devMode) text('DEV  C:クリア演出  1〜3:面を選んで開始', 8, C.HEIGHT - 11, { size: 10, ja: true, color: '#ffd23c' });
 
     const cx = C.WIDTH / 2;
     if (g.state === 'title') {

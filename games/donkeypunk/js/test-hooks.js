@@ -56,6 +56,17 @@ DP.installTestHooks = function (game, loop, renderer) {
         id: e.id, type: e.type, state: e.state, x: e.x, y: e.y, dir: e.dir, t: e.t, landGrace: !!e.landGrace,
         girder: e.girder ? e.girder.id : null, ladder: e.ladder ? e.ladder.index : null,
       })),
+      // 3 面の鉄球の中心と本体の当たり判定(ほかの面では null)
+      wreckingBall: g.level && g.level.stage.wreckingBall ? {
+        frame: g.frame,
+        x: DP.mechanics.wreckingBall.position(g.level.stage.wreckingBall, g.frame).x,
+        y: DP.mechanics.wreckingBall.position(g.level.stage.wreckingBall, g.frame).y,
+        boxes: DP.mechanics.wreckingBall.hitboxes(g.level.stage.wreckingBall, g.frame),
+      } : null,
+      // 3 面のパンクニワトリ(wing: 羽の向き。box: 当たり判定)
+      birds: ((g.level && g.level.birds) || []).map((b) => ({
+        id: b.id, line: b.line, color: b.color, dir: b.dir, x: b.x, y: b.y, wing: DP.birds.wing(b), box: DP.birds.hitbox(b),
+      })),
       items: g.items.map((it) => Object.assign({ type: it.type, taken: it.taken }, game._itemHitbox(it))),
       hazards: g.hazards.map((h) => ({
         id: h.id, type: h.type, x: h.x, y: h.y, state: h.state,
@@ -98,6 +109,8 @@ DP.installTestHooks = function (game, loop, renderer) {
     step: (n) => { for (let i = 0; i < (n || 1); i++) loop.step(); return snapshot(); },
     setSeed: (s) => game._setRng(seeded(s)),
     setBossEnabled: (on) => { if (g.boss) g.boss.enabled = !!on; },
+    // 3 面の鉄球の当たり判定を止める / 戻す(揺れと見た目はそのまま。ジャンプの届く範囲だけを測るテスト用)
+    setWreckingBallEnabled: (on) => { g.wreckingBallOff = !on; },
     clearHazards: () => { g.hazards = []; },
     spawnHazard: (type, girderId, x) => game._spawnHazard(type, girderId, x).id,
     // プレイヤーを鉄骨の上の指定位置に置く
@@ -111,7 +124,7 @@ DP.installTestHooks = function (game, loop, renderer) {
     placePlayerAir: (x, y, vy) => {
       const p = g.player;
       p.state = 'air'; p.girder = null; p.ladder = null;
-      p.x = x; p.y = y; p.vx = 0; p.vy = vy; p.peakY = y;
+      p.x = x; p.y = y; p.vx = 0; p.vy = vy; p.fallFromY = y;
     },
     // プレイヤーをハシゴの途中(足元の高さ y)につかまらせる
     placePlayerLadder: (index, y) => {
@@ -128,6 +141,17 @@ DP.installTestHooks = function (game, loop, renderer) {
     setLives: (n) => { g.lives = n; },
     // ファイヤースカル: 自動の出現を止める・出す / 指定の場所に出す(skipSpawn で出現の演出を省く)/ 全部消す
     setSkullsEnabled: (on) => { g.skullsEnabled = !!on; },
+    // 3 面のパンクニワトリの自動の出現を止める / 戻す(出ている鳥はそのまま飛ぶ)
+    setBirdsEnabled: (on) => { g.birdsEnabled = !!on; },
+    // ライン index(0 = いちばん上)に鳥を 1 羽出す。x を省くと飛んでくる側の画面の外から
+    spawnBird: (index, x) => {
+      const lv = g.level;
+      if (!lv.birds) DP.mechanics.birds.init(lv);
+      const b = DP.birds.create(lv.stage.birds.lines[index], index, x);
+      lv.birds.push(b);
+      return b.id;
+    },
+    clearBirds: () => { if (g.level.birds) g.level.birds = []; },
     spawnSkull: (girderId, x, opts) => { const e = DP.skulls.create(g.level, girderId, x, opts || {}); g.enemies.push(e); return e.id; },
     clearEnemies: () => { g.enemies = []; },
     // 爆音アンプからスカルを出す(side: 'left' | 'right'。着地点の安全確認はしない)/ アンプの炎の燃え上がりの残り
@@ -176,13 +200,20 @@ DP.installTestHooks = function (game, loop, renderer) {
     },
     skullHitbox: (id) => { const e = g.enemies.find((x) => x.id === id); return e ? DP.skulls.hitbox(e) : null; },
     // 指定の面(0 始まり)から新しいゲームを始める(READY から)
-    startStage: (index) => game._startStage(index),
+    startStage: (index, round) => game._startStage(index, round),
     stageIds: () => DP.stages.map((s) => s.id),
     // 爆音アンプの当たり判定(2 面。アンプのない面は null)
     ampHitbox: () => (g.level.stage.amp ? DP.mechanics.amp.hitbox(g.level.stage.amp) : null),
     // 障害物を「触れると炎上」にする(将来のファイヤースカルの代わりに演出を確かめる用)
     setHazardBurns: (id, on) => { const h = g.hazards.find((x) => x.id === id); if (h) h.burns = on !== false; },
     // ベルトコンベアの今の状態(向き・速さ・逆転の予告中か・逆転までの経過)
+    // 3 面のリフトの状態(type: 'loop' / 'shuttle'、板の id と高さ、往復リフトの向き・止まっている残り)
+    lifts: () => (g.level.lifts || []).map((L) => ({
+      id: L.id, type: L.type, speed: L.speed, spacing: L.spacing || 0, pauseFrames: L.pauseFrames || 0,
+      x1: L.x1, x2: L.x2, top: L.def.top, bottom: L.def.bottom, stops: L.stops || null,
+      plates: L.plates.map((p) => ({ id: p.id, y: p.y1 })),
+      dir: L.state ? L.state.dir : -1, pause: L.state ? L.state.pause : 0,
+    })),
     conveyors: () => g.level.girders.filter((x) => x.conveyor).map((x) => ({
       id: x.id, dir: x.convDir === undefined ? x.conveyor.dir : x.convDir, vx: x.vx || 0,
       warn: !!x.convWarn, timer: x.convTimer || 0, reverseEvery: x.conveyor.reverseEvery || 0,

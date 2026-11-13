@@ -25,6 +25,7 @@ DP.createGame = function () {
     hazards: [],
     enemies: [], // 敵(2 面のファイヤースカルなど)。動きは仕掛け、当たり判定と撃破はここで共通に行う
     skullsEnabled: true, // テスト用にファイヤースカルの出現を止められるようにしている
+    birdsEnabled: true, // テスト用に 3 面のパンクニワトリの出現を止められるようにしている
     escape: null, // クリア後の逃走演出(DP.escape)。演出中だけ使う
     items: [], // 鉄骨の上に置かれたアイテム(釘バット)
     effects: [], // ビールが割れたときの破片
@@ -67,6 +68,22 @@ DP.createGame = function () {
     saveHiScore();
   }
 
+  // ジャンプで真下を飛び越えた物(ビール・3 面のパンクニワトリ)に得点を与える。
+  // 主人公が空中にいて、obj が真下(横のずれ 6px 未満・高さの差 48px 未満)にいれば jumpOver 点と得点表示・効果音。
+  // obj.jumpedOver の印を付けるので、同じ物からは 1 回しか入らない。
+  // accept(p) を渡すと、それが true のときだけ加点する(鳥の「同じ床から跳んだときだけ」など)。加点したら true
+  function checkJumpOver(obj, accept) {
+    const p = g.player;
+    if (p.state !== 'air' || obj.jumpedOver) return false;
+    const below = obj.y > p.y && obj.y - p.y < 48;
+    if (!below || Math.abs(obj.x - p.x) >= 6) return false;
+    if (accept && !accept(p)) return false;
+    obj.jumpedOver = true;
+    addScore(C.score.jumpOver, p.x, p.y - 34);
+    DP.audio.play('score');
+    return true;
+  }
+
   function setState(s, message) {
     g.state = s;
     g.timer = 0;
@@ -77,6 +94,11 @@ DP.createGame = function () {
   function setupStage() {
     const stage = DP.stages[g.stageIndex];
     g.level = geo.buildLevel(stage);
+    // 組み立てのときに準備がいる仕掛け(3 面のリフトなど)。周回で速さが変わるので g も渡す
+    for (const name of stage.mechanics || []) {
+      const m = DP.mechanics[name];
+      if (m && m.setup) m.setup(g.level, g);
+    }
     g.player = DP.player.create(g.level);
     const prevEnabled = g.boss ? g.boss.enabled : true;
     g.boss = DP.enemies.createBoss(g.level, difficulty(), () => rng());
@@ -206,6 +228,7 @@ DP.createGame = function () {
     const p = g.player;
     g.hazards = []; // 残っているビールは片付ける
     g.enemies = []; // 敵も片付ける
+    if (g.level.birds) g.level.birds = []; // 3 面のパンクニワトリも
     p.bat = 0; // 釘バットは手放す(BGM は updateMusic の条件から外れて止まる)
     p.batTime = 0;
     p.walkTime = 0;
@@ -236,6 +259,8 @@ DP.createGame = function () {
     spawnHazard: (type, girderId, x) => spawnHazard(type, girderId, x),
     audio: DP.audio,
     killPlayer: (reason) => killPlayer(reason),
+    addScore: (n, x, y) => addScore(n, x, y),
+    checkJumpOver: (obj, accept) => checkJumpOver(obj, accept),
   };
   function updateMechanics() {
     const names = g.level.stage.mechanics || [];
@@ -249,6 +274,10 @@ DP.createGame = function () {
     const p = g.player;
     const ev = DP.player.update(p, g.level, input);
     if (ev.jumped) DP.audio.play('jump');
+    // ジャンプで踏み切った高さ(歩いて踏み外したときは null)。3 面のパンクニワトリの回避ボーナスで
+    // 「その鳥のラインの床から跳んだか」を見るのに使う。空中にいない間は消す
+    if (ev.jumped) p.jumpFromY = p.y;
+    else if (p.state !== 'air') p.jumpFromY = null;
     // 足音(地上を歩いているときだけ player.js が出す)。釘バット使用中は BGM があるので鳴らさない
     if (ev.step && !(p.bat > 0)) DP.audio.play(ev.step);
     if (ev.died) {
@@ -292,17 +321,7 @@ DP.createGame = function () {
     }
 
     // ジャンプで飛び越えたら得点(真下を通過した障害物 1 つにつき 1 回)
-    if (p.state === 'air') {
-      for (const h of g.hazards) {
-        if (h.jumpedOver) continue;
-        const below = h.y > p.y && h.y - p.y < 48;
-        if (below && Math.abs(h.x - p.x) < 6) {
-          h.jumpedOver = true;
-          addScore(C.score.jumpOver, p.x, p.y - 34);
-          DP.audio.play('score');
-        }
-      }
-    }
+    for (const h of g.hazards) checkJumpOver(h);
 
     // ボーナスは時間とともに減る
     if (g.timer % C.score.bonusIntervalFrames === 0 && g.timer > 0) {
@@ -389,9 +408,14 @@ DP.createGame = function () {
     _killPlayer: killPlayer,
     // 開発用ショートカット(dev-tools.js)から: プレイ中ならクリアしたことにして逃走演出を始める
     // 開発用ショートカット / テスト補助から: 指定の面(0 始まり)から新しいゲームを始める
-    _startStage: (index) => {
+    // round: テスト補助だけが使う(周回ごとの難しさを確かめるため。省略すると 1 周目)
+    _startStage: (index, round) => {
       if (index < 0 || index >= DP.stages.length) return false;
       newGame(index);
+      if (round > 1) {
+        g.round = round;
+        setupStage();
+      }
       return true;
     },
     _devClear: () => {
