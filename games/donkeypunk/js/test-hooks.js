@@ -29,6 +29,8 @@ DP.installTestHooks = function (game, loop, renderer) {
       message: g.message,
       score: g.score,
       lives: g.lives,
+      nextExtend: g.nextExtend, // 次に 1UP する得点
+      extends: g.extends || 0, // このゲームで残機が増えた回数
       round: g.round,
       bonus: g.bonus,
       deathReason: g.deathReason,
@@ -56,7 +58,7 @@ DP.installTestHooks = function (game, loop, renderer) {
         ladderX: g.escape.ladderX, ladderBottom: g.escape.ladderBottom, walkFrame: g.escape.walkFrame,
       },
       enemies: g.enemies.map((e) => ({
-        id: e.id, type: e.type, state: e.state, x: e.x, y: e.y, dir: e.dir, t: e.t, landGrace: !!e.landGrace, turnTo: e.turnTo, speed: e.speed, climbSpeed: e.climbSpeed, sameLevelChase: e.sameLevelChase,
+        id: e.id, type: e.type, state: e.state, x: e.x, y: e.y, dir: e.dir, t: e.t, landGrace: !!e.landGrace, cool: e.cool, aimFrames: e.aimFrames, targetFloor: e.targetFloor, turnTo: e.turnTo, speed: e.speed, climbSpeed: e.climbSpeed, sameLevelChase: e.sameLevelChase,
         girder: e.girder ? e.girder.id : null, ladder: e.ladder ? e.ladder.index : null,
       })),
       // 3 面の鉄球の中心と本体の当たり判定(ほかの面では null)
@@ -109,7 +111,15 @@ DP.installTestHooks = function (game, loop, renderer) {
       },
       clearBonus: g.clearBonus,
       // 4 面の安全ピン(pulled: 抜けたか)
-      pins: ((g.level && g.level.pins) || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, pulled: p.pulled })),
+      pins: ((g.level && g.level.pins) || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, pulled: p.pulled, passes: p.passes || 0, half: !!p.half })),
+      pinPassesNeeded: g.level && g.level.stage.pins ? DP.mechanics.pins.passesNeeded(g.level.stage, g.round) : null,
+      // 4 面のヘリと銃弾(ほかの面では null)。機動隊員は enemies に type 'riot' で入る
+      riot: g.level && g.level.riot ? {
+        timer: g.level.riot.timer, lastHeli: g.level.riot.lastHeli, dropped: g.level.riot.dropped,
+        helis: g.level.riot.helis.map((h) => ({ id: h.id, x: h.x, y: h.y, dir: h.dir, onScreen: DP.riot.heliOnScreen(h), targets: h.targets.map((t) => ({ floor: t.floor, x: t.x, dropped: t.dropped })) })),
+        bullets: g.level.riot.bullets.map((b) => ({ id: b.id, x: b.x, y: b.y, dir: b.dir, speed: b.speed, jumpedOver: b.jumpedOver, box: DP.riot.bulletHitbox(b) })),
+        flashes: g.level.riot.flashes.length,
+      } : null,
       pinOrder: (g.level && g.level.pinOrder) ? g.level.pinOrder.slice() : [], // 4 面: 抜いた順(ミス後の抜き直しにも使う)
       copSmashWaits: (g.level && g.level.copSmashWaits) ? g.level.copSmashWaits.slice() : [], // 4 面: 釘バットで倒されたポリスマンの枠の残り待ち時間
       copTimer: g.level ? g.level.copTimer : undefined, // 4 面: 前の出現からの経過ステップ
@@ -241,6 +251,36 @@ DP.installTestHooks = function (game, loop, renderer) {
     bazookaAim: () => {
       const a = DP.bazooka.aim(g.boss, DP.bazooka.targetOf(g.player));
       return Object.assign(a, { muzzle: DP.bazooka.muzzle(g.boss, a.angle, a.flip), target: DP.bazooka.targetOf(g.player) });
+    },
+    // 4 面のヘリ(機動隊員の投下)を止める / 戻す(出ている機動隊員はそのまま)
+    setRiotEnabled: (on) => { g.riotEnabled = !!on; },
+    riotRules: (round) => DP.riot.rules(DP.stages.find((st) => st.riot), round),
+    // 機動隊員を鉄骨の上に直接置く(opts: { dir, state: 'walk' | 'land' | 'chute', round })。chute なら x の真上から降ろす
+    spawnRiot: (girderId, x, opts) => {
+      const o = opts || {};
+      const gd = g.level.girders.find((q) => (q.floor || q.id) === girderId && x >= q.x1 && x <= q.x2) || g.level.byId[girderId];
+      const r = DP.riot.rules(g.level.stage, o.round || g.round) || DP.riot.rules(g.level.stage, 2);
+      let e;
+      if (o.state === 'chute') e = DP.riot.createDrop({ y: o.y !== undefined ? o.y : DP.config.riot.heliY, dir: o.dir || 1 }, { floor: gd.floor || gd.id, x }, r);
+      else e = DP.riot.createOn(g.level, gd, x, r, o);
+      g.enemies.push(e);
+      return e.id;
+    },
+    // ヘリを直接出す(side: 1 = 左から / -1 = 右から、targets: [{ floor, x }])
+    spawnHeli: (side, targets) => {
+      if (!g.level.riot) DP.mechanics.riot.init(g.level);
+      const h = DP.riot.createHeli(side, targets);
+      g.level.riot.helis.push(h);
+      return h.id;
+    },
+    // 投下する場所の選び方(今の主人公の位置から n か所)
+    riotTargets: (n) => DP.riot.chooseTargets(g.level, g.player, n, g.enemies, g.boss),
+    // 銃弾を直接撃つ(床 floorY の上を dir の向きへ)
+    fireRiotBullet: (x, floorY, dir, speed) => {
+      if (!g.level.riot) DP.mechanics.riot.init(g.level);
+      const b = DP.riot.createBullet({ x: x - dir * DP.config.riot.muzzle, y: floorY, dir, bulletSpeed: speed || 2.4 });
+      g.level.riot.bullets.push(b);
+      return b.id;
     },
     // 3 面のパンクニワトリの自動の出現を止める / 戻す(出ている鳥はそのまま飛ぶ)
     setBirdsEnabled: (on) => { g.birdsEnabled = !!on; },

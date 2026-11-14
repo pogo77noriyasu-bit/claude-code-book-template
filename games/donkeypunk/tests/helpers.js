@@ -19,13 +19,14 @@ function watchConsoleErrors(test) {
 }
 
 // 指定の面(0 始まり)からゲームを始め、プレイ中まで進める。
-// ゴリラの投下と、ファイヤースカル・怒ったポリスマン(4 面)の自動の出現は止めておく(skulls: true / cops: true で出現させる)
-async function startAtStage(page, index, { url = './?test', skulls = false, cops = false } = {}) {
+// ゴリラの投下と、ファイヤースカル・怒ったポリスマン(4 面)・4 面のヘリ(機動隊員)の自動の出現は止めておく
+// (skulls: true / cops: true / riot: true で出現させる。round で周回を指定できる)
+async function startAtStage(page, index, { url = './?test', skulls = false, cops = false, riot = false, round = 1 } = {}) {
   await page.goto(url);
   await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
-  await page.evaluate(([i, sk, cp]) => {
-    window.__dp.setManual(true); window.__dp.setSeed(1); window.__dp.setSkullsEnabled(sk); window.__dp.setCopsEnabled(cp); window.__dp.startStage(i);
-  }, [index, skulls, cops]);
+  await page.evaluate(([i, sk, cp, rt, r]) => {
+    window.__dp.setManual(true); window.__dp.setSeed(1); window.__dp.setSkullsEnabled(sk); window.__dp.setCopsEnabled(cp); window.__dp.setRiotEnabled(rt); window.__dp.startStage(i, r);
+  }, [index, skulls, cops, riot, round]);
   await step(page, 1);
   await page.evaluate(() => window.__dp.setBossEnabled(false));
   await step(page, 100); // READY 表示が終わるまで

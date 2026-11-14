@@ -17,6 +17,7 @@ DP.createGame = function () {
     score: 0,
     hiScore: loadHiScore(),
     lives: C.lives,
+    nextExtend: C.score.extendEvery, // 次に 1UP する得点(10,000 点ごと)
     round: 1, // 周回数(全ステージを回ると +1)
     stageIndex: 0,
     level: null,
@@ -28,6 +29,7 @@ DP.createGame = function () {
     skullsEnabled: true, // テスト用にファイヤースカルの出現を止められるようにしている
     copsEnabled: true, // テスト用に怒ったポリスマン(4 面)の出現を止められるようにしている
     birdsEnabled: true, // テスト用に 3 面のパンクニワトリの出現を止められるようにしている
+    riotEnabled: true, // テスト用に 4 面のヘリ(機動隊員の投下)を止められるようにしている
     bazookaEnabled: true, // テスト用に 2 面のゴリラ警官のバズーカ(蛇行ミサイル)を止められるようにしている
     escape: null, // クリア後の逃走演出(DP.escape)。演出中だけ使う
     collapse: null, // 4 面のクリア演出(DP.collapse。鉄骨崩壊 → 拳銃乱射 → ゴリラ落下 → ガール救出)。演出中だけ使う
@@ -74,7 +76,20 @@ DP.createGame = function () {
   function addScore(n, x, y) {
     g.score += n;
     if (x !== undefined) g.popups.push({ text: String(n), x, y, t: 0 });
+    // 得点による 1UP: 10,000 点・20,000 点・30,000 点…を越えるたびに 1 機。1 回の加点で 2 つ越えたら 2 機。
+    // 次の目標(nextExtend)を進めるので、同じ得点で二重には増えない
+    while (g.score >= g.nextExtend) {
+      g.nextExtend += C.score.extendEvery;
+      extraLife();
+    }
     saveHiScore();
+  }
+
+  // 残機を 1 機増やす(得点による 1UP・4 面クリアで次の周回へ進んだとき)。「ピロロ～ン♪」(extend)
+  function extraLife() {
+    g.lives++;
+    g.extends = (g.extends || 0) + 1; // テスト・確認用: 増えた回数
+    DP.audio.play('extend');
   }
 
   // ジャンプで真下を飛び越えた物(ビール・3 面のパンクニワトリ)に得点を与える。
@@ -83,7 +98,7 @@ DP.createGame = function () {
   // accept(p) を渡すと、それが true のときだけ加点する(鳥の「同じ床から跳んだときだけ」など)。加点したら true
   // 敵の種類ごとの処理(当たり判定・当たらない状態か)。2 面のファイヤースカル / 4 面の怒ったポリスマン
   function enemyKind(e) {
-    return e.type === 'cop' ? DP.cops : DP.skulls;
+    return e.type === 'cop' ? DP.cops : e.type === 'riot' ? DP.riot : DP.skulls;
   }
 
   // obj が真下を通ったか(主人公が空中で、obj が真下 = 横のずれ 6px 未満・高さの差 48px 未満)。通ったら obj.jumpedOver の印を付けて true。
@@ -194,6 +209,8 @@ DP.createGame = function () {
   function newGame(stageIndex) {
     g.score = 0;
     g.lives = C.lives;
+    g.nextExtend = C.score.extendEvery;
+    g.extends = 0;
     g.round = 1;
     g.stageIndex = stageIndex || 0;
     g.boss = null;
@@ -207,9 +224,11 @@ DP.createGame = function () {
     do {
       g.stageIndex++;
       if (g.stageIndex >= DP.stages.length) {
-        // 全ステージを回ったら最初に戻って難易度アップ
+        // 全ステージを回ったら最初に戻って難易度アップ。4 面クリアで次の周回へ進むたびに 1UP
+        // (クリアの得点で 10,000 点を越えていれば、そちらの 1UP と合わせて 2 機増える)
         g.stageIndex = 0;
         g.round++;
+        extraLife();
       }
     } while (DP.stages[g.stageIndex].devOnly);
     // 1〜3 面のあと(次が 2〜4 面)は、面間演出(やぐらを積み上げる)を流してから次の面を組み立てる。
@@ -273,7 +292,7 @@ DP.createGame = function () {
     return true;
   }
 
-  // DEV モードの無敵が有効か。devMode は dev-tools.js が開発環境で ?dev のときだけ立てるので、通常プレイでは必ず false
+  // DEV モードの無敵が有効か。devMode は dev-tools.js が URL に ?dev があるときだけ立てるので、通常プレイでは必ず false
   function devInvincible() {
     return g.devMode === true && g.devInvincible === true;
   }
@@ -403,6 +422,14 @@ DP.createGame = function () {
         addScore(C.score.copSmash, e.x, e.y - 40);
         DP.audio.play('smash'); // 既存の敵と同じ破壊音
         DP.mechanics.cops.onSmashed(g.level, g.round); // 代わりが出るまでの待ち時間(出現の間隔の 2 倍)
+      } else if (e.type === 'riot') {
+        // 4 面の機動隊員: 1,000 点。降下中・落ちている・気絶している間は主人公にも当たらないのでバットも届かない
+        if (DP.riot.isHarmless(e)) continue;
+        if (!geo.overlaps(bb, DP.riot.hitbox(e))) continue;
+        e.dead = true; // 当たり判定はすぐ消える(同じステップのうちに外す)ので、二重に加点しない
+        g.effects.push({ x: e.x, y: e.y - 14, t: 0, type: 'riot', dir: p.facing || 1, life: 40 });
+        addScore(C.score.riotSmash, e.x, e.y - 40);
+        DP.audio.play('riotDown');
       }
     }
     g.enemies = g.enemies.filter((e) => !e.dead);
@@ -433,7 +460,8 @@ DP.createGame = function () {
     if (g.state !== 'playing') return;
     const p = g.player;
     g.hazards = [];
-    g.enemies = []; // ポリスマンは歩いている・現れている途中・落ちている・気絶しているどれでも全員消す(エンディングには出さない)
+    g.enemies = []; // ポリスマン・機動隊員は、歩いている・現れている途中・降下中・落ちている・気絶しているどれでも全員消す(エンディングには出さない)
+    DP.mechanics.riot.clear(g.level); // ヘリ・銃弾も片付ける(ローター音はヘリが消えれば鳴らない)
     p.bat = 0;
     p.batTime = 0;
     p.walkTime = 0;
@@ -587,10 +615,11 @@ DP.createGame = function () {
     // そのスカルの床から跳んだときだけ(踏み切った高さとスカルの足元の差が jumpOverFloor 以内。上の段から落ちながら通っても入らない)
     // 4 面の怒ったポリスマンも同じ(歩いている・振り向きの予告中だけ。落ちている・気絶している間は対象外)
     for (const e of g.enemies) {
-      const walking = e.type === 'skull' ? e.state === 'walk' && !DP.skulls.isHarmless(e) : e.type === 'cop' && DP.cops.canJumpOver(e);
+      const walking = e.type === 'skull' ? e.state === 'walk' && !DP.skulls.isHarmless(e)
+        : e.type === 'riot' ? DP.riot.canJumpOver(e) : e.type === 'cop' && DP.cops.canJumpOver(e);
       if (!walking) continue;
       if (e.jumpedOverId !== p.jumpId) e.jumpedOver = false;
-      const floorTol = (e.type === 'cop' ? C.cop : C.skull).jumpOverFloor;
+      const floorTol = (e.type === 'cop' ? C.cop : e.type === 'riot' ? C.riot : C.skull).jumpOverFloor;
       const ok = checkJumpOver(e, (pl) => pl.jumpFromY != null && Math.abs(pl.jumpFromY - e.y) <= floorTol);
       if (ok) e.jumpedOverId = p.jumpId;
     }
@@ -634,7 +663,7 @@ DP.createGame = function () {
     for (const pp of g.popups) pp.t++;
     g.popups = g.popups.filter((pp) => pp.t < 60);
     for (const e of g.effects) e.t++;
-    g.effects = g.effects.filter((e) => e.t < 24);
+    g.effects = g.effects.filter((e) => e.t < (e.life || 24)); // life: 長い演出(機動隊員の撃破など)だけが持つ
     if (g.heroine) g.heroine.anim++;
 
     switch (g.state) {

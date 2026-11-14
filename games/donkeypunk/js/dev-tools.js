@@ -1,6 +1,8 @@
-// 開発用ショートカット(開発環境だけで有効)
-// 有効になる条件: 「localhost / 127.0.0.1 / ローカルファイル(file://)で開いている」かつ「URL に ?dev が付いている」。
-// GitHub Pages などの公開先では ?dev を付けても有効にならない(このとき install は何もしないので、無敵・周回指定も使えない)。
+// 開発用ショートカット(DEV モード)
+// 有効になる条件: URL に ?dev が付いていること(ローカルでも GitHub Pages の公開先でも)。
+// β版の公開後も、不具合の調査・難易度の調整・宣伝用のプレイ動画の撮影に使うため、公開先でも使えるようにした
+// (以前は localhost / 127.0.0.1 / file:// のときだけ)。?dev を付けずに開いた通常プレイには何も影響しない。
+// DEV モードのあいだはハイスコアを保存しないので、通常のハイスコア(ランキング)にも影響しない。
 //
 // URL で一度に指定できる(省略した項目は 周回 1・面 1・無敵 0。範囲外・数字でない値は無視してその項目は初期値):
 //   ?dev&round=3&stage=4&inv=1   … 3 周目の 4 面から、無敵 ON で始める
@@ -18,13 +20,12 @@
 window.DP = window.DP || {};
 
 DP.devTools = (function () {
-  const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
   const MAX_ROUND = 999;
 
+  // DEV モードにするか(URL に ?dev が付いているか。ホストは問わない)。
   // loc は location と同じ形({ protocol, hostname, search })。テストから偽物を渡せるよう引数にしている
   function isDevEnvironment(loc) {
-    const local = loc.protocol === 'file:' || LOCAL_HOSTS.includes(loc.hostname);
-    return local && new URLSearchParams(loc.search).has('dev');
+    return new URLSearchParams(loc.search).has('dev');
   }
 
   // 整数の文字列だけを受け付ける(min〜max の範囲外・小数・数字でないものは null)

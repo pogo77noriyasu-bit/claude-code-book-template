@@ -22,7 +22,7 @@ test('R1. 4 面は stageIds の 4 番目で、通常の並び 1 → 2 → 3 → 
   const st = await stageData(page);
   expect(st.devOnly).toBeUndefined();
   expect(st.name).toBe('STAGE 4');
-  expect(st.mechanics).toEqual(['pins', 'cops', 'prizes']); // 安全ピン・雑魚敵「怒ったポリスマン」(tests/cops.spec.js)・ボーナスアイテム(tests/prizes.spec.js)
+  expect(st.mechanics).toEqual(['pins', 'cops', 'riot', 'prizes']); // 安全ピン・雑魚敵「怒ったポリスマン」(tests/cops.spec.js)・警察ヘリと機動隊員(tests/riot.spec.js)・ボーナスアイテム(tests/prizes.spec.js)
 });
 
 test('R2. 床は地面 + F1〜F4 + ガールの足場で、段の間隔は 95px。ハシゴは隣の段どうしをつなぎ、地面から F4 の左右(ゴリラの両側)まで登れる。ガールの足場と F4 の中央(ゴリラ)へはハシゴが届かない', async ({ page }) => {
@@ -389,7 +389,9 @@ test('R12. どの順番で抜いても詰まない: ピンの抜け方 256 通�
 
 // 本物のキーボード入力だけで、order の順にピンを抜いていく自動操作。道順は buildGraph / bfs で毎回計算し、
 // 歩く・ハシゴを登り降りする・穴を跳び越える。途中で通ったピンもそのまま抜ける。通った足場とピンの抜けた順を返す
-async function pullAllWithKeyboard(page, order) {
+// opts.dodge: 機動隊員の銃弾・体をジャンプでよける(地上で、同じ高さを近づいてくる銃弾があれば、その場で真上に跳ぶ。
+// 歩いていく先に機動隊員が立っていれば、向かって跳んで越える)
+async function pullAllWithKeyboard(page, order, opts = {}) {
   const held = new Set();
   const keys = async (...ks) => {
     for (const k of [...held]) if (!ks.includes(k)) { await page.keyboard.up(k); held.delete(k); }
@@ -398,13 +400,43 @@ async function pullAllWithKeyboard(page, order) {
   const read = () => page.evaluate(() => ({ s: window.__dp.snapshot(), lv: window.__dp.level() }));
   let { s, lv } = await read();
   const pulledOrder = [];
+  const trace = []; // 調べる用: 直前 40 ステップの様子(dodge のときだけ)
   let action = null; // { kind: 'walk' | 'ladder' | 'jump', ... }
   let t = 0;
   for (; t < 9000 && s.state === 'playing'; t++) {
     for (const p of s.pins) if (p.pulled && !pulledOrder.includes(p.id)) pulledOrder.push(p.id);
     if (pulledOrder.length === 8) break;
     const pl = s.player;
-    if (pl.state === 'ladder') await keys(action && action.dir < 0 ? 'ArrowDown' : 'ArrowUp');
+    // 機動隊員の銃弾・体をよける(地上のときだけ)
+    let dodge = null;
+    if (opts.dodge && pl.state === 'ground' && s.riot) {
+      const bullet = s.riot.bullets.find((b) => Math.abs(b.y + 6 - pl.y) < 2 && (b.x - pl.x) * b.dir < 0 && Math.abs(b.x - pl.x) < 44 && Math.abs(b.x - pl.x) > 14);
+      if (bullet) dodge = 'up';
+      // いちばん近い機動隊員(同じ床の上で、当たる状態)。近づいている(こちらが向かっている・相手が歩いてくる)ときだけ
+      // (穴で分かれた床は別の床片。穴の向こうの隊員は、穴を跳ぶときの着地点の確認で扱う)
+      const riot = s.enemies.filter((e) => e.type === 'riot' && !e.landGrace && ['walk', 'aim', 'fire', 'land'].includes(e.state) && e.girder === pl.girder)
+        .sort((a, b) => Math.abs(a.x - pl.x) - Math.abs(b.x - pl.x))[0];
+      if (!dodge && riot && Math.abs(riot.x - pl.x) < 50) {
+        const dx = riot.x - pl.x;
+        const goingToward = held.has(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+        const walkingToward = riot.state === 'walk' && riot.dir === -Math.sign(dx);
+        // しばらく止まっている隊員(構えている最中・着地直後の猶予がまだ 20 ステップ以上ある)なら跳び越えてよい
+        const stillLong = riot.state === 'aim' || (riot.state === 'land' && riot.t < 40);
+        // それ以外(撃った直後で歩き出しそう・離れていく)は、跳んでも越えきれないことがあるので跳ばずに待つ
+        if (goingToward && !stillLong && !walkingToward && Math.abs(dx) < 50) dodge = 'wait';
+        const toward = (goingToward && stillLong) || walkingToward;
+        // 向かって跳んで越える(お互いに近づくと約 2px/ステップで縮まるので、体の高さを越えるまでの分だけ早めに跳ぶ)
+        if (dodge === 'wait') {}
+        else if (toward && Math.abs(dx) >= 30 && Math.abs(dx) <= 44) dodge = dx > 0 ? 'right' : 'left';
+        else if (toward && Math.abs(dx) < 30) dodge = dx > 0 ? 'backL' : 'backR'; // 近すぎる: いったん離れる
+      }
+    }
+    if (dodge === 'up') await keys('Space');
+    else if (dodge === 'wait') await keys();
+    else if (dodge === 'backL') await keys('ArrowLeft');
+    else if (dodge === 'backR') await keys('ArrowRight');
+    else if (dodge) await keys(dodge === 'right' ? 'ArrowRight' : 'ArrowLeft', 'Space');
+    else if (pl.state === 'ladder') await keys(action && action.dir < 0 ? 'ArrowDown' : 'ArrowUp');
     else if (pl.state !== 'ground') await keys();
     else {
       // 地上: 次の目標のピンへの道順を計算して、最初の一手を進める
@@ -418,7 +450,8 @@ async function pullAllWithKeyboard(page, order) {
       if (cur.id === tgtNode.id || !edge) {
         // 同じ床の上: ピンの向こう側(穴の外 8px)まで歩いて通り抜ける。向きはそのピンに向かい始めたときに決めて覚えておく
         // (中心を越えるたびに決め直すと、中心で行ったり来たりしてしまう)
-        if (!action || action.kind !== 'walk' || action.pin !== target.id) action = { kind: 'walk', pin: target.id, side: pl.x < target.x ? 1 : -1 };
+        // R3 以降はピンを 2 回通過する: 1 回通過したら(通過した回数が増えたら)向きを決め直して、反対へ通り抜ける
+        if (!action || action.kind !== 'walk' || action.pin !== target.id || action.passes !== (target.passes || 0)) action = { kind: 'walk', pin: target.id, passes: target.passes || 0, side: pl.x < target.x ? 1 : -1 };
         const goal = target.x + action.side * 20;
         await keys(goal > pl.x ? 'ArrowRight' : 'ArrowLeft');
       } else if (edge.kind === 'ladder') {
@@ -429,16 +462,29 @@ async function pullAllWithKeyboard(page, order) {
         // 穴を跳び越える: 穴の手前 6px まで歩いて、穴へ向かって跳ぶ
         const right = cur.id === edge.a;
         const from = right ? edge.left - 6 : edge.right + 6;
+        // 着地しそうな所(踏み切りから 70px 先まで)に機動隊員がいたら、跳ばずに待つ
+        const dirJ = right ? 1 : -1;
+        const blocked = opts.dodge && s.enemies.some((e) => e.type === 'riot' && !['chute', 'fall', 'stunned'].includes(e.state) &&
+          Math.abs(e.y - pl.y) < 2 && (e.x - from) * dirJ > 0 && Math.abs(e.x - from) < 80);
         if (Math.abs(pl.x - from) > 1) await keys(from > pl.x ? 'ArrowRight' : 'ArrowLeft');
+        else if (blocked) await keys();
         else { action = { kind: 'jump' }; await keys(right ? 'ArrowRight' : 'ArrowLeft', 'Space'); }
       }
+    }
+    if (opts.dodge) {
+      const nr = s.enemies.filter((e) => e.type === 'riot' && Math.abs(e.y - pl.y) < 40).map((e) => `${e.state}@${Math.round(e.x)}d${e.dir}`).join(',');
+      trace.push(`${t} p=${pl.x.toFixed(1)},${pl.y.toFixed(1)} ${pl.state} keys=${[...held].join('+')} dodge=${dodge} act=${action && action.kind} riots=${nr}`);
+      if (trace.length > 40) trace.shift();
     }
     await page.evaluate(() => window.__dp.step(1));
     ({ s, lv } = await read());
   }
   await keys();
   for (const p of s.pins) if (p.pulled && !pulledOrder.includes(p.id)) pulledOrder.push(p.id);
-  return { state: s.state, reason: s.deathReason, pulledOrder, score: s.score - prizeScore(s), seconds: t / 60, lives: s.lives }; // score はアイテムを除いた得点
+  return { state: s.state, reason: s.deathReason, pulledOrder, score: s.score - prizeScore(s), seconds: t / 60, lives: s.lives, riots: s.enemies.filter((e) => e.type === 'riot').length,
+    // ミスしたときの様子(調べる用): 主人公・機動隊員・銃弾
+    trace,
+    last: { player: s.player, riots: s.enemies.filter((e) => e.type === 'riot').map((e) => ({ state: e.state, x: e.x, y: e.y, dir: e.dir, landGrace: e.landGrace })), bullets: s.riot ? s.riot.bullets : [] } }; // score はアイテムを除いた得点
 }
 
 test('R13. 本物のキーボード操作だけで、いろいろな順番(左から・右から・段ごとに左右・上から)で 8 本すべてのピンを抜ける(ミスなし。8 本で 800 点。8 本目でクリア演出に入る)', async ({ page }) => {
@@ -1013,4 +1059,29 @@ test('R30. ボーナスアイテム 3 個は、ピンの抜け方 256 通りす�
     }
   }
   expect(checked).toBe(256 * 3);
+});
+
+test('R40. 総合: R1・R3・R5・R10 で、ヘリと機動隊員ありのまま、本物のキーボード操作で 8 本すべてのピンを抜いてクリア演出に入れる(R3 以降は 2 回ずつ通過。銃弾・機動隊員はジャンプでよける。釘バットは使わない)', async ({ page }) => {
+  test.setTimeout(1800000);
+  // 自動操作は人間ほど賢くない(銃弾をよけて跳んだ足元を別の隊員が通る、など)ので、周回ごとに乱数の種(敵の動き)を変えて
+  // 最大 6 回試し、1 回でもクリアできれば「クリアできる遊び方がある」とする。何回目でクリアできたか・失敗の理由を記録する
+  const order = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
+  const results = [];
+  for (const round of [1, 3, 5, 10]) {
+    const tries = [];
+    let cleared = null;
+    // 種は、最初の乱数(ヘリが来る向きなど)がばらけるものを選んである(1〜6 はどれも同じ向きになった)
+    for (const seed of [1, 7, 101, 77777, 13, 999]) {
+      if (cleared) break;
+      await startAtStage(page, STAGE4, { round, riot: true });
+      // 釘バットは使わない(バットなしでもクリアできることを確かめる): 3 本とも片付けておく。敵の動きは種で変える
+      await page.evaluate((sd) => { window.__dp.setSeed(sd); for (const it of window.__dp.gameForRender().data.items) it.gone = true; }, seed);
+      const r = await pullAllWithKeyboard(page, order, { dodge: true });
+      if (r.state === 'collapse' && r.pulledOrder.length === 8) cleared = { seed, seconds: r.seconds };
+      else tries.push(`種 ${seed}: ${r.reason || r.state}(${r.pulledOrder.length} 本) ${process.env.R40_DEBUG ? '\n' + r.trace.join('\n') : ''}`);
+    }
+    results.push(`R${round}: ${cleared ? `種 ${cleared.seed} でクリア ${cleared.seconds.toFixed(1)} 秒` : 'クリアできず'}${tries.length ? ' / 失敗 ' + tries.join('、') : ''}`);
+    expect(cleared, `R${round}: ${tries.join(' / ')}`).not.toBeNull();
+  }
+  console.log('R40\n' + results.join('\n'));
 });

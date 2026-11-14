@@ -415,7 +415,8 @@ test('I14. 4 面: 崩壊 → 乱射 → 落下 → 救出 → 教会・花火・
   expect(s.state).toBe('ready');
   expect(s.stageId).toBe('girders');
   expect(s.round).toBe(kept.round + 1);
-  expect([s.score, s.lives]).toEqual([kept.score, kept.lives]);
+  // 得点は引き継ぐ。残機は、4 面クリアで次の周回へ進んだ 1UP(最終追加改修)で 1 機増える
+  expect([s.score, s.lives]).toEqual([kept.score, kept.lives + 1]);
   console.log(`I14 エンディング ${endingSteps} ステップ + ROUND CLEAR ${m} ステップ`);
   expect(endingSteps).toBeGreaterThan(800);
 });

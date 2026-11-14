@@ -736,7 +736,8 @@ DP.createRenderer = function (canvas) {
 
   // 4 面の巨大な安全ピン(ステージデータの pins)。床の継ぎ目(x±12)を黄色い留め金で覆い、
   // その上に安全ピンの頭(輪と針)が突き出す。抜けたピン(pulled)は描かない(床には穴が開いている)
-  function drawPins(pins, level) {
+  // need: 抜くのに必要な通過回数(R1・R2 は 1 回 = 黄色。R3 以降は 2 回 = 初期状態はピンク、1 回通過して半解除になったら白)
+  function drawPins(pins, level, need) {
     const T = C.GIRDER_THICKNESS;
     for (const pin of pins) {
       if (pin.pulled) continue;
@@ -744,12 +745,13 @@ DP.createRenderer = function (canvas) {
       if (!gd) continue;
       const y = Math.round(geo.surfaceY(gd, pin.x));
       const x = Math.round(pin.x);
-      // 留め金(床の継ぎ目を覆う黄色い板。幅 24px = 第 2 段階で消える床の幅)
-      ctx.fillStyle = '#ffd23c';
+      // 留め金(床の継ぎ目を覆う板。幅 24px = 抜いたときに消える床の幅)の色: 本体・上の縁・下の縁
+      const col = need >= 2 ? (pin.half ? ['#f4f4fa', '#ffffff', '#9a9aac'] : ['#ff5aa6', '#ffb0d6', '#9a1f5a']) : ['#ffd23c', '#fff3a0', '#9a7410'];
+      ctx.fillStyle = col[0];
       ctx.fillRect(x - 12, y, 24, T);
-      ctx.fillStyle = '#fff3a0';
+      ctx.fillStyle = col[1];
       ctx.fillRect(x - 12, y, 24, 1);
-      ctx.fillStyle = '#9a7410';
+      ctx.fillStyle = col[2];
       ctx.fillRect(x - 12, y + T - 1, 24, 1);
       ctx.fillRect(x - 1, y + 2, 2, T - 4); // 継ぎ目
       // 安全ピンの頭: 床から上へ突き出した針(2 本)と、上の丸い輪・留め具
@@ -759,8 +761,8 @@ DP.createRenderer = function (canvas) {
       ctx.fillRect(x - 4, y - 14, 8, 2); // 輪の上
       ctx.fillStyle = '#a0a0b8';
       ctx.fillRect(x - 3, y - 12, 2, 2); // 輪の内側の影
-      ctx.fillStyle = '#ffd23c';
-      ctx.fillRect(x - 6, y - 4, 12, 4); // 留め具(黄色)
+      ctx.fillStyle = col[0];
+      ctx.fillRect(x - 6, y - 4, 12, 4); // 留め具(留め金と同じ色)
     }
   }
 
@@ -991,6 +993,43 @@ DP.createRenderer = function (canvas) {
         if (e.t < 8) text('PING!', e.x, e.y - 22, { size: 8, align: 'center', color: '#ffd23c' });
         continue;
       }
+      if (e.type === 'riot') {
+        // 機動隊員を釘バットで倒した(ポリスマンより派手): 白い閃光 → ヘルメットが打たれた向きへくるくる飛び、
+        // 防護服と銃のかけら・金の星が大きく散り、「KAPOW!」(40 ステップ)
+        if (e.t < 6) {
+          ctx.globalAlpha = 1 - e.t / 6;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, 10 + e.t * 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        const hx = e.x + e.dir * e.t * 2;
+        const hy = e.y - 12 - e.t * 2.6 + e.t * e.t * 0.1;
+        ctx.fillStyle = '#141414';
+        ctx.fillRect(Math.round(hx) - 6, Math.round(hy) - 5, 12, 8);
+        ctx.fillStyle = '#3a8cff';
+        if (Math.floor(e.t / 3) % 2 === 0) ctx.fillRect(Math.round(hx) - 5, Math.round(hy), 10, 2);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2 + 0.2;
+          const r = e.t * (1.6 + (i % 3) * 0.5);
+          ctx.fillStyle = i % 3 === 0 ? '#ffd23c' : i % 3 === 1 ? '#3a3a44' : '#141414';
+          const sz = i % 3 === 0 ? 4 : 3;
+          ctx.fillRect(Math.round(e.x + Math.cos(a) * r), Math.round(e.y - 10 + Math.sin(a) * r + e.t * e.t * 0.04), sz, sz);
+        }
+        if (e.t < 18) text('KAPOW!', e.x, e.y - 50 - e.t, { size: 10, align: 'center', color: '#ffd23c', shadow: '#1d2c74' });
+        continue;
+      }
+      if (e.type === 'pinHalf') {
+        // 安全ピンの半解除(1 回目の通過): 白い光の粒が小さく広がる
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const r = 3 + e.t;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(Math.round(e.x + Math.cos(a) * r) - 1, Math.round(e.y + Math.sin(a) * r) - 1, 2, 2);
+        }
+        continue;
+      }
       if (e.type === 'cop') {
         // 怒ったポリスマンを釘バットで倒した: 制帽が打たれた向きへくるくる飛び、紺と金のかけら・黄色い星が散る
         const hx = e.x + e.dir * e.t * 1.6;
@@ -1068,6 +1107,135 @@ DP.createRenderer = function (canvas) {
       drawSideways(kick, e.girlX, e.girlY);
       spr.draw(ctx, 'bossClimb', e.bossX, e.bossY + 1, { flip: e.walkFrame === 1 });
     }
+  }
+
+  // ---- 4 面: 警察ヘリと機動隊員(js/riot.js) ----
+  const HELI_SCALE = 3;
+  // ヘリ: 機体のドット絵(heli)に、回るメインローター(羽根の長さをステップごとに変えて回転に見せる)・テールローター(十字と斜めを交互)・
+  // 点滅する赤い警告ランプ(腹と尾)・胴体の白い「POLICE」を重ねる。左へ飛ぶときは機体だけ左右反転(文字は反転しない)
+  function drawHeli(h, frame) {
+    const d = h.dir;
+    const S = HELI_SCALE; // 1 ドット = 3px(大きな機体で迫力を出す。ドット絵は 48x15 ドット = 144x45px)
+    const u = (n) => Math.round((n * S) / 2); // 2 倍で描いたときの px を、今の倍率の px に直す
+    const x = Math.round(h.x);
+    const y = Math.round(h.y);
+    spr.draw(ctx, 'heli', x, y + u(15), { flip: d < 0, scale: S });
+    // メインローター(ハブの上を左右に伸びる灰色の羽根 + うっすらした回転の残像)
+    const hubX = x + d * u(2);
+    const hubY = y - u(16);
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#cfd6e0';
+    ctx.fillRect(hubX - u(62), hubY, u(124), 2);
+    ctx.globalAlpha = 1;
+    const lens = [62, 36, 8, 36];
+    const L = u(lens[Math.floor(frame / 2) % 4]);
+    ctx.fillStyle = '#aab2c0';
+    ctx.fillRect(hubX - L, hubY - 1, L * 2, 4);
+    ctx.fillStyle = '#3a3a44';
+    ctx.fillRect(hubX - 3, hubY - 3, 6, 7); // ハブ
+    // テールローター(尾の先。十字と斜めを交互に)
+    const tx = x - d * u(46);
+    const ty = y - u(4);
+    const tr = u(7);
+    ctx.fillStyle = '#aab2c0';
+    if (Math.floor(frame / 2) % 2 === 0) {
+      ctx.fillRect(tx - 1, ty - tr, 3, tr * 2);
+      ctx.fillRect(tx - tr, ty - 1, tr * 2, 3);
+    } else {
+      for (let k = -tr + 2; k <= tr - 2; k += 1) {
+        ctx.fillRect(tx + k - 1, ty + k - 1, 2, 2);
+        ctx.fillRect(tx + k - 1, ty - k - 1, 2, 2);
+      }
+    }
+    // 赤い警告ランプ(腹と尾。交互に点滅。腹のランプは光がにじむ)
+    const on = Math.floor(frame / 10) % 2 === 0;
+    ctx.fillStyle = on ? '#ff2a2a' : '#5a1010';
+    ctx.fillRect(x + d * u(4) - 3, y + u(9), 6, 4);
+    ctx.fillStyle = !on ? '#ff2a2a' : '#5a1010';
+    ctx.fillRect(x - d * u(44) - 3, y - u(7), 6, 4);
+    if (on) {
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#ff2a2a';
+      ctx.fillRect(x + d * u(4) - 8, y + u(9) - 3, 16, 10);
+      ctx.globalAlpha = 1;
+    }
+    // 胴体の白い「POLICE」(胴体の太い所に収まる大きさ)
+    text('POLICE', x - d * u(4), y - u(2), { size: 10, align: 'center', color: '#ffffff' });
+  }
+
+  // 機動隊員(降下中はパラシュート付き)。着地のときに重なっていて当たらない間は点滅
+  function drawRiot(e, frame) {
+    if (e.landGrace && Math.floor(frame / 4) % 2 === 1) return;
+    const flip = e.dir < 0;
+    if (e.state === 'chute') {
+      // パラシュート: 赤と白の縞の半円 + 4 本の紐。揺れに合わせて少し横へずらす
+      const sway = Math.round((e.x - e.tx) * 0.6);
+      const cx = Math.round(e.x) + sway;
+      const top = Math.round(e.y) - 66;
+      for (let i = 0; i < 9; i++) {
+        const w = Math.round(Math.sqrt(1 - Math.pow((8 - i) / 9, 2)) * 22);
+        for (let k = -w; k < w; k += 4) {
+          ctx.fillStyle = Math.floor((k + 24) / 8) % 2 === 0 ? '#ff2a2a' : '#ffffff';
+          ctx.fillRect(cx + k, top + i * 2, 4, 2);
+        }
+      }
+      ctx.fillStyle = '#cfd6e0';
+      for (const k of [-20, -8, 8, 20]) {
+        const x0 = cx + k;
+        const x1 = Math.round(e.x) + (k < 0 ? -6 : 6);
+        for (let j = 0; j <= 10; j++) ctx.fillRect(Math.round(x0 + ((x1 - x0) * j) / 10), Math.round(top + 18 + (j * 18) / 10), 1, 2);
+      }
+      spr.draw(ctx, 'riotChute', e.x, e.y, { flip });
+      return;
+    }
+    if (e.state === 'fall') { spr.draw(ctx, 'riotChute', e.x, e.y, { flip }); return; }
+    if (e.state === 'stunned') {
+      spr.draw(ctx, 'riotA', e.x, e.y, { flip });
+      for (let i = 0; i < 3; i++) {
+        const a = frame / 8 + (i * Math.PI * 2) / 3;
+        ctx.fillStyle = '#ffd23c';
+        ctx.fillRect(Math.round(e.x + Math.cos(a) * 9) - 1, Math.round(e.y - 36 + Math.sin(a) * 3) - 1, 3, 3);
+      }
+      return;
+    }
+    if (e.state === 'aim' || e.state === 'fire') {
+      spr.draw(ctx, 'riotAim', e.x, e.y, { flip });
+      if (e.state === 'aim') {
+        // 予備動作: 銃口が赤く点滅(撃つのが近づくほど速く)
+        const rate = e.t >= e.aimFrames - 10 ? 2 : 5;
+        if (Math.floor(e.t / rate) % 2 === 0) {
+          ctx.fillStyle = '#ff2a2a';
+          ctx.fillRect(Math.round(e.x + e.dir * 16) - 2, Math.round(e.y - 19), 4, 4);
+        }
+      }
+      return;
+    }
+    const walking = e.state === 'walk';
+    spr.draw(ctx, walking && Math.floor(e.anim / 8) % 2 ? 'riotB' : 'riotA', e.x, e.y, { flip });
+  }
+
+  // 銃弾(黄色い弾 + 白い芯 + 後ろのオレンジの尾)・銃口の閃光・ヘリ
+  function drawRiotWorld(R, frame) {
+    for (const b of R.bullets) {
+      const x = Math.round(b.x);
+      const y = Math.round(b.y);
+      ctx.fillStyle = '#ff8a1e';
+      ctx.fillRect(b.dir > 0 ? x - 10 : x + 4, y - 3, 6, 2);
+      ctx.fillStyle = '#ffd23c';
+      ctx.fillRect(x - 4, y - 4, 8, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x - 2, y - 3, 4, 2);
+    }
+    for (const f of R.flashes) {
+      const k = 1 - f.t / C.riot.fireFrames;
+      const r = Math.round(3 + 5 * k);
+      ctx.fillStyle = '#ffd23c';
+      ctx.fillRect(Math.round(f.x) - r, Math.round(f.y) - 1, r * 2, 3);
+      ctx.fillRect(Math.round(f.x) - 1, Math.round(f.y) - r, 3, r * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(f.x) - 2, Math.round(f.y) - 2, 4, 4);
+    }
+    for (const h of R.helis) drawHeli(h, frame);
   }
 
   // 2 面: バズーカ砲を構えたゴリラ警官(lv.bazooka の段階が raise / aim / recoil のとき)。
@@ -1557,12 +1725,13 @@ DP.createRenderer = function (canvas) {
           else drawBoss(g.boss);
         }
       }
-      if (stage.pins && !col) drawPins(g.level.pins || stage.pins, g.level);
+      if (stage.pins && !col) drawPins(g.level.pins || stage.pins, g.level, DP.mechanics.pins.passesNeeded(stage, g.round));
       if (g.level.prizes && !col) drawPrizes(g.level, g.frame);
       drawItems(g.items, g.frame);
       for (const h of g.hazards) drawHazard(h);
       for (const e of g.enemies) {
         if (e.type === 'cop') drawCop(e, g.frame);
+        else if (e.type === 'riot') drawRiot(e, g.frame);
         else drawSkull(e);
       }
       // 3 面のパンクニワトリ(羽ばたきの 2 枚を入れ替える。左へ飛ぶときは左右反転)
@@ -1575,6 +1744,8 @@ DP.createRenderer = function (canvas) {
         spr.draw(ctx, `bird_${b.color}_${DP.birds.wing(b)}${open}`, b.x, by, { flip: b.dir < 0 });
         if (birdFire) drawBirdFire(b, birdFire, g.frame);
       }
+      // 4 面の銃弾・銃口の閃光・ヘリ(ヘリは上空を飛ぶので敵より手前に描く)
+      if (g.level.riot) drawRiotWorld(g.level.riot, g.frame);
       // 2 面の蛇行ミサイル(煙が奥、本体が手前)
       if (g.level.bazooka) {
         drawMissileSmoke(g.level.bazooka);

@@ -525,21 +525,38 @@ DP.mechanics = {
   // 新しいゲーム・次の周回で 4 面に入ったときは受け渡さないので、8 本とも元に戻る
   pins: {
     setup(level) {
-      level.pins = (level.stage.pins || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, touched: false, pulled: false }));
+      // passes: 有効に通過した回数(R3 以降は 2 回で抜ける。1 回目は half = 白くなるだけで穴は開かない)
+      level.pins = (level.stage.pins || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, touched: false, pulled: false, passes: 0, half: false }));
       // 抜いた順番(ピンの id)。穴の右側の鉄骨の id は抜く順番で変わるので、抜き直すときは同じ順番にする
       level.pinOrder = [];
     },
-    // ミスで組み立て直す前に呼ぶ: 抜いたピンの id を抜いた順に返す(game.js の setupStage へ渡す)
+    // 抜くのに必要な通過回数(周回の表 riot.rounds の pinPasses。表がなければ 1 回)
+    passesNeeded(stage, round) {
+      const r = DP.riot ? DP.riot.rules(stage, round) : null;
+      return r && r.pinPasses ? r.pinPasses : 1;
+    },
+    // ミスで組み立て直す前に呼ぶ: 抜いたピンの id(抜いた順)と、1 回通過して白くなったピンの id を返す(game.js の setupStage へ渡す)
     carry(level) {
-      return level.pinOrder ? level.pinOrder.slice() : [];
+      return {
+        order: level.pinOrder ? level.pinOrder.slice() : [],
+        half: (level.pins || []).filter((q) => q.half && !q.pulled).map((q) => q.id),
+      };
     },
     // 組み立て直したあとに呼ぶ: carry() の id を同じ順番で抜き直す。得点・効果音・演出は出さない。
     // refs: 穴の右側に来たら鉄骨を付け替えるもの(主人公・ゴリラ)。ゴリラを作ったあとに呼ぶこと
-    restore(level, ids, refs) {
+    // data: carry() の戻り値(以前の形 = 抜いた順の id の配列も読める)
+    restore(level, data, refs) {
       if (!level.pins) this.setup(level);
-      for (const id of ids || []) {
+      const ids = Array.isArray(data) ? data : (data && data.order) || [];
+      const half = Array.isArray(data) ? [] : (data && data.half) || [];
+      for (const id of ids) {
         const pin = level.pins.find((q) => q.id === id);
         if (pin) this.pull(level, pin, refs);
+      }
+      // 1 回通過して白くなったピンは白いまま(穴は開いていない)
+      for (const id of half) {
+        const pin = level.pins.find((q) => q.id === id);
+        if (pin && !pin.pulled) { pin.passes = 1; pin.half = true; }
       }
     },
     // ピンが留めている床の、今の鉄骨(分かれたあとは、ピンの x を含む方)
@@ -584,7 +601,17 @@ DP.mechanics = {
         if (inside && near) {
           pin.touched = true;
         } else if (pin.touched && !inside) {
-          // 敵(怒ったポリスマン)も、穴の右側に来たら右の鉄骨に付け替える。足元に穴が開いた敵は下の段へ落ちる
+          // 範囲から横に出た = 有効な通過 1 回。範囲に入り直さないと次は数えない(立ち続けても・1 回のジャンプでも 2 回にならない)
+          pin.touched = false;
+          pin.passes++;
+          if (pin.passes < this.passesNeeded(level.stage, g.round)) {
+            // R3 以降の 1 回目: 白くなる(半解除)。穴は開けず、得点も入れない。短い効果音と小さな光
+            pin.half = true;
+            ctx.audio.play('pinHalf');
+            g.effects.push({ x: pin.x, y: floorY - 14, t: 0, type: 'pinHalf' });
+            continue;
+          }
+          // 敵(怒ったポリスマン・機動隊員)も、穴の右側に来たら右の鉄骨に付け替える。足元に穴が開いた敵は下の段へ落ちる
           this.pull(level, pin, [p, g.boss].concat(g.enemies));
           if (DP.cops) DP.cops.dropIntoHole(g.enemies, level, pin);
           ctx.addScore(DP.config.score.pin, pin.x, floorY - 30);
@@ -668,6 +695,118 @@ DP.mechanics = {
         }
       }
       g.enemies = g.enemies.filter((e) => !e.dead);
+    },
+  },
+
+  // 4 面: 警察ヘリと機動隊員(js/riot.js。周回ごとの値はステージデータの riot.rounds)。
+  // ヘリは周回の heli ステップごとに、画面の左右どちらかから来て、主人公が向かっていそうな場所の真上で機動隊員を投下し、反対側へ飛び去る。
+  // 投下した累計(lv.riot.dropped)+ これから投下する数が total(1 ステージあたりの累計の上限)に達したら、もう来ない
+  // (倒された・穴に落ちた隊員の補充はしない)。累計はミスしても carry / restore で引き継ぎ、次の周回の 4 面で 0 に戻る。
+  // 最初はプレイ開始(ミス後も)から firstDelay 来ない。
+  // 銃弾はここで動かし、主人公との当たり判定(ハシゴの上は当たらない)と跳び越えの 100 点を行う。
+  // 機動隊員の体との当たり判定・釘バットでの撃破・体の跳び越えは、ほかの敵と同じく game.js の共通の処理。
+  // 状態はレベル(level.riot)と g.enemies に持つので、ミスすると消えて数え直す
+  riot: {
+    init(lv) {
+      lv.riot = { timer: 0, lastHeli: null, retry: 0, helis: [], bullets: [], rotorT: 0, flashes: [], dropped: 0 };
+    },
+    // ミスで組み立て直す前に呼ぶ: このステージで投下した累計を返す(game.js の setupStage へ渡す)
+    carry(lv) {
+      return { dropped: lv.riot ? lv.riot.dropped : 0 };
+    },
+    // 組み立て直したあとに呼ぶ: 投下した累計を戻す(ヘリ・隊員・銃弾は戻さない。猶予 firstDelay から数え直す)
+    restore(lv, data) {
+      if (!lv.riot) this.init(lv);
+      lv.riot.dropped = (data && data.dropped) || 0;
+    },
+    // ヘリ・銃弾を片付ける(クリア演出を始めるとき。機動隊員は g.enemies と一緒に消える)
+    clear(lv) {
+      if (lv && lv.riot) Object.assign(lv.riot, { helis: [], bullets: [], flashes: [] });
+    },
+    update(ctx) {
+      const g = ctx.g;
+      if (g.state !== 'playing') return; // クリア演出に入ったら何もしない(8 本目と同じステップでも新しいヘリを出さない)
+      const lv = g.level;
+      const r = DP.riot.rules(lv.stage, g.round);
+      if (!r) return;
+      const c = DP.config.riot;
+      if (!lv.riot) this.init(lv);
+      const R = lv.riot;
+      R.timer++;
+      if (R.retry > 0) R.retry--;
+      const p = g.player;
+      // ヘリの出現
+      const pending = R.helis.reduce((n, h) => n + h.targets.filter((t) => !t.dropped).length, 0);
+      const room = r.total - R.dropped - pending; // 累計の上限までの残り(倒されても補充しない)
+      const due = r.heli && R.timer >= c.firstDelay && (R.lastHeli === null || R.timer - R.lastHeli >= r.heli);
+      if (g.riotEnabled && due && room > 0 && R.retry <= 0 && p.state !== 'dead') {
+        const want = r.drops[0] === r.drops[1] ? r.drops[0] : r.drops[0] + (ctx.rng() < 0.5 ? 0 : 1);
+        const targets = DP.riot.chooseTargets(lv, p, Math.min(want, room), g.enemies, g.boss);
+        if (targets.length) {
+          const side = ctx.rng() < 0.5 ? 1 : -1;
+          R.helis.push(DP.riot.createHeli(side, targets));
+          R.lastHeli = R.timer;
+        } else {
+          R.retry = c.retryDelay; // 降りられる場所がない: 少し待ってから試し直す
+        }
+      }
+      // ヘリを動かし、目標の真上で投下する
+      for (const h of R.helis) {
+        for (const tg of DP.riot.updateHeli(h)) {
+          g.enemies.push(DP.riot.createDrop(h, tg, r));
+          R.dropped++; // 投下した累計
+        }
+      }
+      R.helis = R.helis.filter((h) => !h.dead);
+      // ローター音「ブルブル」: 画面に見えているヘリがいる間だけ、rotorEvery ステップごと
+      if (R.helis.some((h) => DP.riot.heliOnScreen(h))) {
+        if (R.rotorT % c.rotorEvery === 0) ctx.audio.play('rotor');
+        R.rotorT++;
+      } else R.rotorT = 0;
+      // 機動隊員
+      for (const e of g.enemies) {
+        if (e.type !== 'riot') continue;
+        const ev = DP.riot.update(e, lv, p, ctx.rng);
+        if (ev.fire) {
+          R.bullets.push(ev.fire);
+          R.flashes.push({ x: ev.fire.x, y: ev.fire.y - 2, dir: ev.fire.dir, t: 0 });
+          ctx.audio.play('riotShot');
+        }
+        if (ev.stunned) {
+          ctx.addScore(DP.config.score.copDrop, e.x, e.y - 40);
+          ctx.audio.play('copStun');
+        }
+      }
+      g.enemies = g.enemies.filter((e) => !e.dead);
+      for (const f of R.flashes) f.t++;
+      R.flashes = R.flashes.filter((f) => f.t < c.fireFrames);
+      // 銃弾
+      for (const b of R.bullets) DP.riot.updateBullet(b);
+      R.bullets = R.bullets.filter((b) => !b.dead);
+      if (p.state === 'dead') return;
+      // 釘バットの攻撃範囲に入った銃弾は叩き落とす(得点なし。バットを持っている間はジャンプできず、弾は歩くより速いので、
+      // よけようがない理不尽な死亡を防ぐ。前から来た弾は落とせ、背中側から来た弾には当たる。ビール・ニワトリと同じ)
+      const bb = DP.player.batHitbox(p);
+      if (bb) {
+        let hit = false;
+        for (const b of R.bullets) {
+          if (b.dead || !DP.geometry.overlaps(bb, DP.riot.bulletHitbox(b))) continue;
+          b.dead = true;
+          hit = true;
+          R.flashes.push({ x: b.x, y: b.y - 2, dir: -b.dir, t: 0 });
+        }
+        if (hit) ctx.audio.play('riotDeflect');
+        R.bullets = R.bullets.filter((b) => !b.dead);
+      }
+      // ハシゴの上の主人公には当たらない(身動きが取れない場面の理不尽な死亡を防ぐ)
+      if (p.state !== 'ladder') {
+        const pb = DP.player.hitbox(p);
+        if (R.bullets.some((b) => DP.geometry.overlaps(pb, DP.riot.bulletHitbox(b)))) {
+          if (ctx.killPlayer('hazard')) return;
+        }
+      }
+      // 跳び越えたら 100 点(1 発 1 回。ctx.checkJumpOver が印 jumpedOver を付ける)
+      for (const b of R.bullets) ctx.checkJumpOver(b);
     },
   },
 

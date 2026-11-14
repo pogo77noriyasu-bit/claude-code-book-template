@@ -111,9 +111,14 @@ test('D2. ?dev がない通常プレイでは絶対に有効にならない: URL
   await page.evaluate(() => { window.__dp.gameForRender().data.devInvincible = true; window.__dp.killPlayer('hazard'); });
   s = await step(page, 1);
   expect(s.state).toBe('dying');
-  // 公開先と同じ条件(https の別のホスト)では、?dev と inv=1 を付けても DEV モードにならない
-  const env = await page.evaluate(() => window.DP.devTools.isDevEnvironment({ protocol: 'https:', hostname: 'example.github.io', search: '?dev&round=3&stage=4&inv=1' }));
-  expect(env).toBe(false);
+  // 公開先(https の別のホスト。GitHub Pages)でも、?dev を付けたときだけ DEV モードになる(β版の公開後も調査・調整・動画撮影に使う)。
+  // ?dev を付けなければ、公開先でもローカルでも通常プレイ
+  const env = await page.evaluate(() => [
+    window.DP.devTools.isDevEnvironment({ protocol: 'https:', hostname: 'example.github.io', search: '?dev&round=3&stage=4&inv=1' }),
+    window.DP.devTools.isDevEnvironment({ protocol: 'https:', hostname: 'example.github.io', search: '' }),
+    window.DP.devTools.isDevEnvironment({ protocol: 'https:', hostname: 'example.github.io', search: '?round=3&stage=4&inv=1' }),
+  ]);
+  expect(env).toEqual([true, false, false]);
 });
 
 test('D3. I キーで無敵を切り替える(初期値は OFF)。無敵中は右下に「INVINCIBLE」(黄と赤で点滅)、左下に今の周回と面', async ({ page }) => {

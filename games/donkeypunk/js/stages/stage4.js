@@ -19,7 +19,26 @@ DP.stages.push({
   // 通常の面の並びは 1 → 2 → 3 → 4 → 1(次の周回)。4 面をクリアすると周回 +1 で 1 面へ戻る
   // (開発中の面に devOnly: true を書くと並びから外せる。game.js の nextStage)
   // 仕掛け: 安全ピンを抜く('pins')。ゴリラは立っているだけ(待機アニメ)
-  mechanics: ['pins', 'cops', 'prizes'],
+  mechanics: ['pins', 'cops', 'riot', 'prizes'],
+  // 周回ごとの値(仕掛け 'riot' と 'pins'。1 行目が R1。R11 以降は最後の行 = R10 で上限)。試作値。プレイして調整する
+  //   heli: ヘリが来る間隔(ステップ。null = 来ない)/ drops: 1 機が投下する人数 [最小, 最大](どちらかを半々)/
+  //   total: 1 ステージ(1 回の 4 面)で投下する機動隊員の累計の上限(倒されても・穴に落ちても補充しない。投下しきったらヘリも来ない。
+  //          ミスしても数え直さず、次の周回の 4 面で 0 に戻る。以前は同時存在の上限だった)/ speed: 歩く速さ / aim: 構えてから撃つまで /
+  //   cooldown: 撃ってから次に構えられるまで / bullet: 弾速(px/ステップ)/ pinPasses: 安全ピンを抜くのに必要な通過回数
+  riot: {
+    rounds: [
+      { heli: null, drops: [0, 0], total: 0, speed: 0.6, aim: 36, cooldown: 150, bullet: 2.0, pinPasses: 1 }, // R1(来ない)
+      { heli: 720, drops: [1, 1], total: 1, speed: 0.6, aim: 36, cooldown: 150, bullet: 2.0, pinPasses: 1 }, // R2(12 秒)
+      { heli: 600, drops: [1, 1], total: 2, speed: 0.6, aim: 34, cooldown: 140, bullet: 2.1, pinPasses: 2 }, // R3(10 秒)
+      { heli: 540, drops: [1, 1], total: 2, speed: 0.65, aim: 32, cooldown: 130, bullet: 2.2, pinPasses: 2 }, // R4(9 秒)
+      { heli: 480, drops: [1, 1], total: 3, speed: 0.65, aim: 30, cooldown: 120, bullet: 2.3, pinPasses: 2 }, // R5(8 秒)
+      { heli: 450, drops: [1, 1], total: 3, speed: 0.7, aim: 28, cooldown: 110, bullet: 2.4, pinPasses: 2 }, // R6(7.5 秒)
+      { heli: 420, drops: [1, 2], total: 3, speed: 0.7, aim: 26, cooldown: 100, bullet: 2.5, pinPasses: 2 }, // R7(7 秒)
+      { heli: 390, drops: [1, 2], total: 3, speed: 0.75, aim: 24, cooldown: 95, bullet: 2.6, pinPasses: 2 }, // R8(6.5 秒)
+      { heli: 360, drops: [1, 2], total: 4, speed: 0.75, aim: 22, cooldown: 90, bullet: 2.7, pinPasses: 2 }, // R9(6 秒)
+      { heli: 360, drops: [2, 2], total: 4, speed: 0.8, aim: 20, cooldown: 80, bullet: 2.8, pinPasses: 2 }, // R10〜(6 秒・上限)
+    ],
+  },
   // ボーナスアイテム(仕掛け 'prizes')。面の最初から置いてあり、歩いて触れると取れる。どれも主な通り道から少し外れた行き止まりで、
   // 奥ほど危なく高い。穴の端から 20px 以上・ポリスマンの出現地点から 40px 以上離してある
   //   ビール瓶(300): F1 の右端(地面からハシゴ x=432 で上がってすぐ右)/ エロ本(500): F3 の左端(左端とハシゴ x=72 の間)/

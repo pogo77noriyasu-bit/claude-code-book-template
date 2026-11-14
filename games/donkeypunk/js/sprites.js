@@ -687,6 +687,94 @@ DP.sprites = (function () {
     '..RRRR..',
   ]);
 
+  // 4 面: 警察ヘリ(アパッチ風のオリジナル。右向き。左へ飛ぶときは左右反転)。48x15 ドット = 96x30px(主人公の約 2.5 倍の幅)。
+  // 細長い濃紺の胴体(N / 明るい帯 n)、前後に並んだ 2 つの操縦席(水色のガラス U・e)、前へ突き出した機首、
+  // 左の細い尾と尾翼(赤いランプ R)、胴体の下の短い翼と武装風のポッド(K)、機首の下の機関砲(G)、スキッド(G)。
+  // メインローター・テールローター・点滅するランプ・「POLICE」の白文字は renderer.js が上から描く(回転・点滅させるため)
+  DATA.heli = def([
+    '......................kkkk......................',
+    '....................NNNNNNNN....................',
+    '.................NNNNNNNNNNNNNee................',
+    '...............NNNNNNNNNNNNNNeUUe..eee..........',
+    'kk...........NNNNNNNNNNNNNNNNeeeeNNeUUUe........',
+    'kRk.........NNNNNNNNNNNNNNNNNNNNNNNNeeeeN.......',
+    'kkkkNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN.....',
+    '.kkNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN...',
+    '..kkNNNNNNNNNnnnnnnnnnnnnnnnnnnnnnnnnnnnnNNNNNk.',
+    '....kkk.....NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNk...',
+    '............kGGGGGGGGGGGGGGGkNNNNNNNNNNNNNkk....',
+    '.............kKKKKkk.kKKKKk..kNNNNNNNNNk.kGGk...',
+    '..............kkkk....kkkk....kkkkkkkkk..kGGGG..',
+    '...................k...........k................',
+    '..............GGGGGGGGGGGGGGGGGGGGGGG...........',
+  ]);
+
+  // 4 面: 機動隊員(右向き。15x16 ドット = 30x32px。大きさ・当たり判定・ポーズの種類は以前と同じ)。
+  // 以前の絵(黒いヘルメットと黒ずくめ)は泥棒のように見えたので、機動隊らしく描き直した:
+  // 大きな濃紺のヘルメット(N・つやの n)、顔の前まで覆う水色の透明バイザー(U・光る e)、肩パッド付きのゴツい防弾ベスト
+  // (濃いグレー k・ポケット K・白い帯 W)、紺のズボンと金のバックル(Y)、黒いブーツ(K)、黒い銃(K)を持つ手(S)。
+  // ポーズ: 歩き 2 枚(riotA / riotB)/ 構え(riotAim。銃を肩の高さに)/ 降下(riotChute。両腕を上げてパラシュートの紐を持つ)
+  const RIOT_HEAD = [
+    '...NNNNNNN.....',
+    '..NnnNNNNNN....',
+    '..NNNNNNNNNN...',
+    '..NNeUUUUUUN...',
+    '..NNUUUUUUUN...',
+    '...NSSSSSSN....',
+    '....KKKKKK.....',
+  ];
+  const RIOT_VEST = [
+    '.kkkkkkkkkkk...',
+    'kkKkkkkkkKkkk..',
+  ];
+  DATA.riotA = def(RIOT_HEAD.concat(RIOT_VEST, [
+    'kkkWWWWWWkkSKKK',
+    'kkKkkkkkkKk.K..',
+    '.kkkkkkkkkk....',
+    '..NNNYNNNN.....',
+    '..NNN..NNN.....',
+    '..NNN..NNN.....',
+    '.KKKK..KKKK....',
+  ]));
+  DATA.riotB = def(RIOT_HEAD.concat(RIOT_VEST, [
+    'kkkWWWWWWkkSKKK',
+    'kkKkkkkkkKk.K..',
+    '.kkkkkkkkkk....',
+    '..NNNYNNNN.....',
+    '...NNNNNN......',
+    '..NNN.NNN......',
+    '.KKKK..KKK.....',
+  ]));
+  DATA.riotAim = def(RIOT_HEAD.concat([
+    '.kkkkkkkkkkk...',
+    'kkKkkkkkkKkSSKKK',
+    'kkkWWWWWWkkK.K..',
+    'kkKkkkkkkKk....',
+    '.kkkkkkkkkk....',
+    '..NNNYNNNN.....',
+    '..NNN..NNN.....',
+    '..NNN..NNN.....',
+    '.KKKK..KKKK....',
+  ]));
+  DATA.riotChute = def([
+    'S..NNNNNNN..S..',
+    'S.NnnNNNNNN.S..',
+    'SkNNNNNNNNNNk..',
+    'kkNNeUUUUUUNk..',
+    '.kNNUUUUUUUNk..',
+    '..kNSSSSSSNk...',
+    '....KKKKKK.....',
+    '.kkkkkkkkkkk...',
+    'kkKkkkkkkKkkk..',
+    'kkkWWWWWWkkk...',
+    'kkKkkkkkkKkk...',
+    '.kkkkkkkkkk....',
+    '..NNNYNNNN.....',
+    '..NNN..NNN.....',
+    '..NN....NN.....',
+    '.KKK....KKK....',
+  ]);
+
   // 描画を速くするため、スプライトごと(左右反転ごと)にオフスクリーンキャンバスへ焼いておく
   const cache = {};
   function bake(name, flip) {

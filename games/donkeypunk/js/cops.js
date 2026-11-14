@@ -188,8 +188,9 @@ DP.cops = (function () {
     const h = DP.config.pin.halfWidth;
     let n = 0;
     for (const e of enemies) {
-      if (e.type !== 'cop' || e.dead || !e.girder) continue;
-      if (e.state !== 'walk' && e.state !== 'turn' && e.state !== 'spawn') continue;
+      // 怒ったポリスマンと機動隊員(js/riot.js)。歩いている・予告中・現れている途中・構え・発砲・着地直後
+      if ((e.type !== 'cop' && e.type !== 'riot') || e.dead || !e.girder) continue;
+      if (!['walk', 'turn', 'spawn', 'aim', 'fire', 'land'].includes(e.state)) continue;
       if ((e.girder.floor || e.girder.id) !== pin.girder || Math.abs(e.x - pin.x) > h) continue;
       e.state = 'fall';
       e.t = 0;
