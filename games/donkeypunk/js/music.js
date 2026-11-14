@@ -128,6 +128,33 @@ DP.music = (function () {
     },
   };
 
+  // ── 4 面のクリア演出(主人公とガールが並んでハートが出たあと)に流す幸せな曲(オリジナル) ──
+  // C メジャー・132 BPM・8 小節ループ。C → F → G → C / Am → F → G → C の明るい進行に、
+  // 跳ねるように上がるメロディー(細めの矩形波 25%)、16 分の分散和音のギター、オクターブのベース、軽い 8 ビート。
+  // 通常プレイの BGM(MAIN_SONG)とは別に、audio.js の SONGS.happy が DP.music.songEvents('happy', step) で鳴らす
+  SONGS.happy = {
+    title: 'Happy Rescue (original)',
+    bpm: 132,
+    key: ['C', 'D', 'E', 'F', 'G', 'A', 'B'], // C メジャー
+    leadDuty: 0.25,
+    chords: {
+      C: { arp: ['C4', 'G4', 'C5', 'E5'], bass: 'C3', bassHi: 'C4' },
+      F: { arp: ['F4', 'A4', 'C5', 'F5'], bass: 'F2', bassHi: 'F3' },
+      G: { arp: ['G4', 'B4', 'D5', 'G5'], bass: 'G2', bassHi: 'G3' },
+      Am: { arp: ['A4', 'C5', 'E5', 'A5'], bass: 'A2', bassHi: 'A3' },
+    },
+    bars: [
+      { chords: ['C'], guitar: 'arp', bass: 'oct', drums: 'beatCrash', lead: ['E5', 'G5', 'C6', '-', 'B5', 'C6', 'D6', '-'] },
+      { chords: ['F'], guitar: 'arp', bass: 'oct', drums: 'beat', lead: ['C6', 'A5', 'F5', 'A5', 'C6', '-', '.', '.'] },
+      { chords: ['G'], guitar: 'arp', bass: 'oct', drums: 'beat', lead: ['B5', 'D6', 'G5', 'B5', 'D6', '-', 'C6', 'B5'] },
+      { chords: ['C'], guitar: 'arp', bass: 'oct', drums: 'push', lead: ['C6', '-', 'G5', 'E5', 'C5', '-', '.', '.'] },
+      { chords: ['Am'], guitar: 'arp', bass: 'oct', drums: 'beatCrash', lead: ['A5', '-', 'C6', 'A5', 'E5', '-', 'A5', 'B5'] },
+      { chords: ['F'], guitar: 'arp', bass: 'oct', drums: 'beat', lead: ['C6', '-', 'A5', 'C6', 'F6', '-', 'E6', 'D6'] },
+      { chords: ['G'], guitar: 'arp', bass: 'oct', drums: 'beat', lead: ['D6', '-', 'B5', 'G5', 'D6', 'C6', 'B5', 'A5'] },
+      { chords: ['C'], guitar: 'arp', bass: 'oct', drums: 'push', lead: ['C6', '-', '-', '-', 'G5', 'E5', 'C6', '.'] },
+    ],
+  };
+
   // 通常プレイで流す曲(全ステージ・全周回で共通)
   const MAIN_SONG = 'oneTwo';
 

@@ -5,7 +5,7 @@
 //
 // 仕掛けの形: { update(ctx) }
 //   ctx = { g: ゲームの状態, rng: () => 乱数, spawnHazard(type, girderId, x), audio: DP.audio,
-//           killPlayer(reason): 主人公をミスにする('burn' なら炎上の演出) }
+//           killPlayer(reason): 主人公をミスにする('burn' なら炎上の演出)。本当にミスになったら true(DEV の無敵中は false) }
 //   仕掛けが主人公をミスにしたら、そのステップの残りの処理(障害物の移動・当たり判定)は行わない。
 //   update はプレイ中の 1 ステップごとに、主人公と釘バットの処理のあと・障害物の移動の前に呼ばれる。
 window.DP = window.DP || {};
@@ -186,8 +186,7 @@ DP.mechanics = {
       if (p.state === 'dead') return;
       const pb = DP.player.hitbox(p);
       if (lv.birds.some((b) => DP.geometry.overlaps(pb, DP.birds.hitbox(b)))) {
-        ctx.killPlayer('hazard');
-        return;
+        if (ctx.killPlayer('hazard')) return; // DEV の無敵中はミスにならないので、跳び越えの得点の判定へ進む
       }
       // ジャンプで跳び越えたら 100 点(1 面のビールを跳び越えたときと同じ処理 ctx.checkJumpOver。1 羽につき 1 回)。
       // その鳥のラインの床(屋上の端のがれき y152・K1 y150 も ① の床なので ±jumpOverFloor px まで)から
@@ -344,6 +343,208 @@ DP.mechanics = {
     },
   },
 
+  // 4 面: 巨大な安全ピン(ステージデータの pins)を抜く。
+  // 主人公の中心がピンの x±halfWidth に入り、足元が床の上面から touchHeight 以内にあれば「触れた」とし、
+  // そのあと中心が x±halfWidth の外へ出た瞬間に抜く(歩いて通り抜けても、真上を跳び越えても抜ける。
+  // その場で真上に跳んでも抜けないので、足元のピンを抜いて穴に落ちることはない)。
+  // 抜くとピンの x±halfWidth の床が消え、床の鉄骨が左右 2 枚に分かれる(穴の左は元の鉄骨の id のまま、右は新しい id)。
+  // ハシゴ・主人公・ゴリラが元の鉄骨を参照していて、それが穴の右側になったら、右の鉄骨に付け替える(ハシゴは切れない)。
+  // 得点 score.pin と得点表示・効果音 'pin'・ピンが回りながら飛び出す演出(effects の type: 'pin')。
+  // 状態(level.pins)はレベルに持つ。ミスして組み立て直すときは、game.js が carry() で抜いたピンを受け取り、
+  // 組み立て直したあとに restore() で同じ順番に抜き直す(ピンも穴も残る。得点は入れ直さない)。
+  // 新しいゲーム・次の周回で 4 面に入ったときは受け渡さないので、8 本とも元に戻る
+  pins: {
+    setup(level) {
+      level.pins = (level.stage.pins || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, touched: false, pulled: false }));
+      // 抜いた順番(ピンの id)。穴の右側の鉄骨の id は抜く順番で変わるので、抜き直すときは同じ順番にする
+      level.pinOrder = [];
+    },
+    // ミスで組み立て直す前に呼ぶ: 抜いたピンの id を抜いた順に返す(game.js の setupStage へ渡す)
+    carry(level) {
+      return level.pinOrder ? level.pinOrder.slice() : [];
+    },
+    // 組み立て直したあとに呼ぶ: carry() の id を同じ順番で抜き直す。得点・効果音・演出は出さない。
+    // refs: 穴の右側に来たら鉄骨を付け替えるもの(主人公・ゴリラ)。ゴリラを作ったあとに呼ぶこと
+    restore(level, ids, refs) {
+      if (!level.pins) this.setup(level);
+      for (const id of ids || []) {
+        const pin = level.pins.find((q) => q.id === id);
+        if (pin) this.pull(level, pin, refs);
+      }
+    },
+    // ピンが留めている床の、今の鉄骨(分かれたあとは、ピンの x を含む方)
+    floorAt(level, pin) {
+      return level.girders.find((g) => (g.floor || g.id) === pin.girder && g.kind !== 'lift' && DP.geometry.containsX(g, pin.x));
+    },
+    // ピンを抜いて、その場所の床を消す(テスト補助からも呼ぶ)。抜けたら true
+    pull(level, pin, refs) {
+      if (pin.pulled) return false;
+      const h = DP.config.pin.halfWidth;
+      const g = this.floorAt(level, pin);
+      pin.pulled = true;
+      if (!level.pinOrder) level.pinOrder = [];
+      level.pinOrder.push(pin.id);
+      if (!g) return true;
+      const right = Object.assign({}, g, { id: g.id + '@' + (pin.x + h), floor: g.floor || g.id, x1: pin.x + h, index: level.girders.length });
+      g.floor = g.floor || g.id;
+      g.x2 = pin.x - h;
+      level.girders.push(right);
+      level.byId[right.id] = right;
+      // 元の鉄骨を参照していて、穴の右側に来たものを付け替える
+      const fix = (girder, x) => (girder === g && x > g.x2 ? right : girder);
+      for (const l of level.ladders) {
+        l.lower = fix(l.lower, l.x);
+        l.upper = fix(l.upper, l.x);
+      }
+      for (const r of refs || []) if (r && r.girder) r.girder = fix(r.girder, r.x);
+      return true;
+    },
+    update(ctx) {
+      const g = ctx.g;
+      const level = g.level;
+      if (!level.pins) this.setup(level);
+      const p = g.player;
+      if (p.state === 'dead' || p.state === 'ladder') return;
+      const c = DP.config.pin;
+      for (const pin of level.pins) {
+        if (pin.pulled) continue;
+        const floorY = DP.geometry.surfaceY(level.byId[pin.girder], pin.x);
+        const inside = Math.abs(p.x - pin.x) <= c.halfWidth;
+        const near = p.y <= floorY + 0.5 && p.y >= floorY - c.touchHeight;
+        if (inside && near) {
+          pin.touched = true;
+        } else if (pin.touched && !inside) {
+          // 敵(怒ったポリスマン)も、穴の右側に来たら右の鉄骨に付け替える。足元に穴が開いた敵は下の段へ落ちる
+          this.pull(level, pin, [p, g.boss].concat(g.enemies));
+          if (DP.cops) DP.cops.dropIntoHole(g.enemies, level, pin);
+          ctx.addScore(DP.config.score.pin, pin.x, floorY - 30);
+          ctx.audio.play('pin');
+          g.effects.push({ x: pin.x, y: floorY - 8, t: 0, type: 'pin', dir: p.x > pin.x ? -1 : 1 });
+          // 8 本すべて抜いたら、クリア演出(鉄骨崩壊 → 拳銃乱射 → ゴリラ落下 → ガール救出)へ。
+          // ここで状態が 'collapse' に変わるので、updatePlaying はこのあとの当たり判定をせずに終わる
+          if (level.pins.every((q) => q.pulled)) {
+            ctx.startCollapse();
+            return;
+          }
+        } else if (!near) {
+          // 触れたあと、横に出ずに上下へ離れた(ここでは起きないが念のため)
+          pin.touched = false;
+        }
+      }
+    },
+  },
+
+  // 4 面: 怒ったポリスマン(js/cops.js)の出現と動き。ステージデータの cops.spawns(出現地点)から交互に出す。
+  // 最初はプレイ開始から firstSpawn、そのあとは spawnInterval ごとに 1 人ずつ、同時に maxAlive 人まで(周回で変わる)。
+  // 出現地点が穴の中・穴の端に近すぎるとき、主人公が同じ段の spawnAvoid 以内にいるときは、もう一方の地点から出す。
+  // 出現の経過はレベルに持つので、ミスすると数え直し(ピンと穴は残る)。足元のピンを抜かれて落ちた敵は、気絶すると 300 点
+  cops: {
+    // 出現地点 sp に今出せるなら、その鉄骨(穴で分かれたあとは x を含む方)を返す。出せなければ null
+    spawnGirder(level, sp, player, enemies) {
+      const c = DP.config.cop;
+      const g = level.girders.find((q) => (q.floor || q.id) === sp.girder && q.kind !== 'lift' && sp.x >= q.x1 + c.edgeMargin && sp.x <= q.x2 - c.edgeMargin);
+      if (!g) return null;
+      const y = DP.geometry.surfaceY(g, sp.x);
+      if (player && player.state !== 'dead' && Math.abs(player.x - sp.x) < c.spawnAvoid && Math.abs(player.y - y) < 30) return null;
+      if (enemies.some((e) => e.type === 'cop' && !e.dead && e.girder === g && Math.abs(e.x - sp.x) < 24)) return null;
+      return g;
+    },
+    // 釘バットでポリスマンを倒したときに game.js が呼ぶ: その 1 人ぶんの枠を、出現の間隔 × smashRespawnFactor の間は埋めない
+    onSmashed(level, round) {
+      const c = DP.config.cop;
+      if (!level.copSmashWaits) level.copSmashWaits = [];
+      level.copSmashWaits.push(DP.cops.byRound(c.spawnInterval, round) * c.smashRespawnFactor);
+    },
+    update(ctx) {
+      const g = ctx.g;
+      // クリア演出(エンディング)に入ったら何もしない。8 本目のピンを抜いたのと同じステップでも、新しいポリスマンを出さない
+      if (g.state !== 'playing') return;
+      const c = DP.config.cop;
+      const lv = g.level;
+      const spawns = (lv.stage.cops && lv.stage.cops.spawns) || [];
+      if (lv.copTimer === undefined) {
+        lv.copTimer = 0;
+        lv.copNext = 0;
+      }
+      lv.copTimer++;
+      // 釘バットで倒された枠の残り待ち時間(倒した 1 人ごとに 1 つ。0 になったら枠が空く)
+      if (!lv.copSmashWaits) lv.copSmashWaits = [];
+      lv.copSmashWaits = lv.copSmashWaits.map((w) => w - 1).filter((w) => w > 0);
+      const max = DP.cops.byRound(c.maxAlive, g.round);
+      const due = lv.copTimer >= (lv.copSpawned ? DP.cops.byRound(c.spawnInterval, g.round) : c.firstSpawn);
+      // 待ち時間中の枠は、いるものとして数える(その間は代わりを出さない)
+      const alive = g.enemies.filter((e) => e.type === 'cop').length + lv.copSmashWaits.length;
+      if (g.copsEnabled && due && alive < max && spawns.length) {
+        for (let k = 0; k < spawns.length; k++) {
+          const sp = spawns[(lv.copNext + k) % spawns.length];
+          const gd = this.spawnGirder(lv, sp, g.player, g.enemies);
+          if (!gd) continue;
+          // 主人公の方を向いて現れる(現れている間は当たらない)
+          const dir = g.player.x >= sp.x ? 1 : -1;
+          g.enemies.push(DP.cops.create(lv, gd, sp.x, { dir, round: g.round }));
+          lv.copNext = (lv.copNext + k + 1) % spawns.length;
+          lv.copTimer = 0;
+          lv.copSpawned = true;
+          ctx.audio.play('whistle'); // ゴリラ警官の笛「ピーッ」
+          break;
+        }
+      }
+      for (const e of g.enemies) {
+        if (e.type !== 'cop') continue;
+        const ev = DP.cops.update(e, lv, g.player, ctx.rng);
+        if (ev.stunned) {
+          ctx.addScore(DP.config.score.copDrop, e.x, e.y - 40);
+          ctx.audio.play('copStun');
+        }
+      }
+      g.enemies = g.enemies.filter((e) => !e.dead);
+    },
+  },
+
+  // 4 面: ボーナスアイテム(ステージデータの prizes。ビール瓶 300 点・エロ本 500 点・札束 800 点)。面の最初から床に置いてあり、
+  // 主人公が歩いて触れるだけで取れる(得点・得点表示・効果音 'prize'・光の粒)。ポリスマンやゴリラは取らない。
+  // 置き場所は穴の端から 20px 以上離してあるので、ピンをどう抜いても真下に穴は開かず、取れなくならない(テストで 256 通りを確認)。
+  // 状態(level.prizes)はピンと同じく carry / restore でミス後に引き継ぐ: 取ったアイテムは消えたまま(得点の二重取りなし)、
+  // 新しいゲーム・次の周回では引き継がないので 3 つとも戻る
+  prizes: {
+    setup(level) {
+      level.prizes = (level.stage.prizes || []).map((p) => ({ id: p.id, type: p.type, floor: p.girder, x: p.x, taken: false }));
+    },
+    carry(level) {
+      return (level.prizes || []).filter((p) => p.taken).map((p) => p.id);
+    },
+    restore(level, ids) {
+      if (!level.prizes) this.setup(level);
+      for (const p of level.prizes) if (ids.includes(p.id)) p.taken = true;
+    },
+    // アイテムが乗っている床の鉄骨(ピンで分かれたあとは x を含む方)と、足元の高さ
+    floorOf(level, p) {
+      const g = level.girders.find((q) => (q.floor || q.id) === p.floor && q.kind !== 'lift' && DP.geometry.containsX(q, p.x));
+      return { girder: g || null, y: g ? DP.geometry.surfaceY(g, p.x) : null };
+    },
+    hitbox(level, p) {
+      const c = DP.config.prize;
+      return { x: p.x, y: this.floorOf(level, p).y, w: c.width, h: c.height };
+    },
+    update(ctx) {
+      const g = ctx.g;
+      const level = g.level;
+      if (!level.prizes) this.setup(level);
+      const pl = g.player;
+      if (!pl || pl.state === 'dead') return;
+      const pb = DP.player.hitbox(pl);
+      for (const p of level.prizes) {
+        if (p.taken || p.gone || !DP.geometry.overlaps(pb, this.hitbox(level, p))) continue;
+        p.taken = true;
+        const score = DP.config.score.prize[p.type];
+        const y = this.floorOf(level, p).y;
+        ctx.addScore(score, p.x, y - 40);
+        ctx.audio.play('prize', score);
+        g.effects.push({ x: p.x, y: y - 14, t: 0, type: 'prize' });
+      }
+    },
+  },
+
   // 1 面: ゴリラ警官がビール瓶・缶を持ち上げて、鉄骨へ転がす。
   // (ステージデータの boss.throwX / throwInterval / canRatio を使う)
   beerThrow: {
@@ -351,7 +552,21 @@ DP.mechanics = {
       const g = ctx.g;
       const bev = DP.enemies.updateBoss(g.boss, g.level, ctx.rng);
       if (bev.spawn) {
-        ctx.spawnHazard(bev.spawn, g.boss.girder.id, g.boss.throwX);
+        const h = ctx.spawnHazard(bev.spawn, g.boss.girder.id, g.boss.throwX);
+        // 斜め投げ(ステージデータの lob。1 面はゴミ箱): ゴリラの頭の上から斜め下へ放物線を描いて飛ばす(共通の DP.hazards.launch)
+        const lob = g.level.stage.lob;
+        if (lob && bev.spawn === lob.type) {
+          const x = g.boss.x + lob.handDx;
+          const y = g.boss.y + lob.handDy;
+          if (lob.motion === 'zigzag') {
+            // ジグザグ落下: 投げるたびに角度(最初の鉄骨から)と、最初の 1 区間の角度を選ぶ。速さは瓶・缶と同じく周回の速さの倍率を掛ける。最初は右下へ
+            const angle = DP.hazards.pickAngle(lob, ctx.rng);
+            DP.hazards.zigzag(h, x, y, angle, lob.speed * h.speedMul, 1, DP.hazards.pickFirstAngle(lob, ctx.rng));
+          } else {
+            // 放物線(今は使っていない。ほかの面で使うときのために残す)
+            DP.hazards.launch(h, x, y, lob.vxMin + (lob.vxMax - lob.vxMin) * ctx.rng(), lob.vy);
+          }
+        }
         ctx.audio.play('throw');
       }
     },

@@ -20,6 +20,7 @@ test.afterEach(async () => {
 
 const snap = (page) => page.evaluate(() => window.__dp.snapshot());
 const step = (page, n) => page.evaluate((k) => window.__dp.step(k), n);
+const { passIntermission, leaveClear } = require('./helpers'); // 1〜3 面のあとの面間演出を見終わるまで進める
 // プレイヤーの当たり判定の高さ(config.player.height と同じ値)
 const DP_HEIGHT = 26;
 // プレイヤーのドット絵の高さ(モヒカン込み。20 ドット × 2)
@@ -81,6 +82,7 @@ test('1. タイトルからゲームを開始できる', async ({ page }) => {
   await page.evaluate(() => window.__dp.setManual(true));
   await page.keyboard.press('Enter');
   let s = await step(page, 1);
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.lives).toBe(3);
   expect(s.score).toBe(0);
@@ -299,7 +301,8 @@ test('8. 残機ゼロでゲームオーバーになり、ENTER で再挑戦で�
     }
   }
   await page.keyboard.press('Enter');
-  const s = await step(page, 1);
+  let s = await step(page, 1);
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.lives).toBe(3);
   expect(s.score).toBe(0);
@@ -328,9 +331,8 @@ test('9. ハシゴを登って最上段のガールに触れるとクリア(Oi! 
   expect(s.message).toBe('Oi! Oi! Oi!');
 
   // 演出のあと ENTER で次の面(2 面)へ進む。周回数はそのまま(2 面をクリアすると 1 面に戻って R2)
-  s = await step(page, 160);
-  await page.keyboard.press('Enter');
-  s = await step(page, 1);
+  s = await leaveClear(page); // クリア表示は自動で次へ(ENTER なし)
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.message).toBe('STAGE 2');
   expect(s.stageId).toBe('livehouse');
@@ -1016,9 +1018,8 @@ test('35. クリアするとゴリラ警官がガールのところへ歩き、�
   expect(sounds[sounds.length - 1]).toBe('clear');
 
   // ENTER で次の面(2 面)に進むと、2 人とも元の位置(2 面でも同じ位置)に戻る
-  s = await step(page, 160);
-  await page.keyboard.press('Enter');
-  s = await step(page, 1);
+  s = await leaveClear(page); // クリア表示は自動で次へ(ENTER なし)
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.boss.gone).toBe(false);
   expect(s.heroine.gone).toBe(false);
@@ -1181,6 +1182,7 @@ test('40. 開発用ショートカットはタイトル画面や READY 中には
   expect(s.state).toBe('title');
   await page.keyboard.press('Enter');
   s = await step(page, 1);
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   await page.keyboard.press('c');
   s = await step(page, 1);

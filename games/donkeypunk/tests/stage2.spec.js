@@ -1,7 +1,7 @@
 // ドンキーパンク 2 面「ライブハウス搬入口」の第 1 段階のテスト
 // (地形・ハシゴ・面の遷移・開発用ショートカット。コンベアはまだ動かない足場)
 const { test, expect } = require('@playwright/test');
-const { snap, step, watchConsoleErrors, startAtStage, hold, walkTo, climb } = require('./helpers');
+const { snap, step, watchConsoleErrors, startAtStage, hold, walkTo, climb, passIntermission, leaveClear } = require('./helpers');
 
 watchConsoleErrors(test);
 
@@ -45,7 +45,7 @@ async function climbRoute(page, route) {
 
 test('S1. 面の並びは 1 面 → 2 面で、2 面は平らな足場・端から端までの中段の足場・コンベア・ハシゴでできている', async ({ page }) => {
   await startAtStage(page, STAGE2);
-  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse', 'squat']);
+  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse', 'squat', 'rivets']); // 4 面(rivets)まで
   const s = await snap(page);
   expect(s.stageId).toBe('livehouse');
   expect(s.message).toBe('');
@@ -131,9 +131,8 @@ test('S3. 実際のキー操作で 2 面を左ルートで登りきり、クリ�
   for (let i = 0; i < 900 && s.state === 'escape'; i++) s = await step(page, 1);
   expect(s.state).toBe('clear');
   // ENTER で 3 面へ進む(1 面に戻って周回数が増えるのは 3 面のクリア後)
-  s = await step(page, 160);
-  await page.keyboard.press('Enter');
-  s = await step(page, 1);
+  s = await leaveClear(page); // クリア表示は自動で次へ(ENTER なし)
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.stageId).toBe('squat');
   expect(s.round).toBe(1);
@@ -148,9 +147,8 @@ test('S4. 実際のキー操作で 2 面を中央ルートでも登りきれる'
 test('S5. 1 面をクリアすると 2 面へ進み、2 面ではゴリラ警官がビールを投げず、普通の足場では流されない', async ({ page }) => {
   await startAtStage(page, 0);
   await clearByTouchingGirl(page);
-  await step(page, 160);
-  await page.keyboard.press('Enter');
-  let s = await step(page, 1);
+  let s = await leaveClear(page); // クリア表示は自動で次へ(ENTER なし)
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
   expect(s.message).toBe('STAGE 2');
   expect(s.stageId).toBe('livehouse');
@@ -298,8 +296,8 @@ test('S9. 開発用ショートカット: ?dev で 2 キーを押すと 2 面か
   expect(s.stageId).toBe('squat');
   expect(s.message).toBe('STAGE 3');
 
-  // 存在しない面(4 キー)は何もしない
-  await page.keyboard.press('4');
+  // 存在しない面(5 キー)は何もしない(4 キーは開発中の 4 面。tests/stage4.spec.js の R8)
+  await page.keyboard.press('5');
   s = await snap(page);
   expect(s.stageId).toBe('squat');
   expect(s.state).toBe('ready');

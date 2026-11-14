@@ -19,13 +19,13 @@ function watchConsoleErrors(test) {
 }
 
 // 指定の面(0 始まり)からゲームを始め、プレイ中まで進める。
-// ゴリラの投下と、ファイヤースカルの自動の出現は止めておく(skulls: true で出現させる)
-async function startAtStage(page, index, { url = './?test', skulls = false } = {}) {
+// ゴリラの投下と、ファイヤースカル・怒ったポリスマン(4 面)の自動の出現は止めておく(skulls: true / cops: true で出現させる)
+async function startAtStage(page, index, { url = './?test', skulls = false, cops = false } = {}) {
   await page.goto(url);
   await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
-  await page.evaluate(([i, sk]) => {
-    window.__dp.setManual(true); window.__dp.setSeed(1); window.__dp.setSkullsEnabled(sk); window.__dp.startStage(i);
-  }, [index, skulls]);
+  await page.evaluate(([i, sk, cp]) => {
+    window.__dp.setManual(true); window.__dp.setSeed(1); window.__dp.setSkullsEnabled(sk); window.__dp.setCopsEnabled(cp); window.__dp.startStage(i);
+  }, [index, skulls, cops]);
   await step(page, 1);
   await page.evaluate(() => window.__dp.setBossEnabled(false));
   await step(page, 100); // READY 表示が終わるまで
@@ -67,4 +67,23 @@ async function climb(page, key) {
   return s;
 }
 
-module.exports = { snap, step, watchConsoleErrors, startAtStage, hold, walkTo, climb };
+// 1〜3 面のクリア後の面間演出(やぐらを積み上げる)が流れていたら、終わって次の面の READY になるまで進める。
+// 演出中でなければ何もしない(4 面のあと・タイトルからの開始など)。演出はステップ数が決まっているので、上限を超えたら失敗
+async function passIntermission(page) {
+  let s = await snap(page);
+  for (let i = 0; i < 2000 && s.state === 'intermission'; i++) s = await step(page, 1);
+  expect(s.state).not.toBe('intermission');
+  return s;
+}
+
+// クリア表示(「Oi! Oi! Oi!」/ 4 面の「ROUND CLEAR」)は、決まった時間で自動的に次へ進む(ENTER は使わない)。
+// クリア表示が終わるまで 1 ステップずつ進め、終わった直後の状態(1〜3 面のあとは面間演出、4 面のあとは次の周回の 1 面の READY)を返す
+async function leaveClear(page) {
+  let s = await snap(page);
+  expect(s.state).toBe('clear');
+  for (let i = 0; i < 1000 && s.state === 'clear'; i++) s = await step(page, 1);
+  expect(s.state).not.toBe('clear');
+  return s;
+}
+
+module.exports = { snap, step, watchConsoleErrors, startAtStage, hold, walkTo, climb, passIntermission, leaveClear };

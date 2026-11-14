@@ -698,3 +698,129 @@ test('V1. ファイヤースカルの速さ: 普通の足場では 0.9、ハシ�
   s = await step(page, 20);
   expect(s.enemies.find((e) => e.id === id).y).toBeCloseTo(y0 - 0.6 * 20, 5);
 });
+
+// ---------------------------------------------------------------- ジャンプで飛び越えたら 100 点
+
+// 2 面の中段の足場(mid。平らで流れない)で、主人公を x=px に置き、スカルを x=sx に左向きで出して、
+// 右へ歩きながら跳ぶ(ブラウザの中で 1 ステップずつ。キーは本物と同じ keydown / keyup イベント)。結果を返す
+function jumpOverScan() {
+  return (startPx, ds) => {
+    const dp = window.__dp;
+    const key = (k, d) => window.dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { key: k }));
+    const out = [];
+    for (const d of ds) {
+      dp.setManual(true);
+      dp.setSeed(1);
+      dp.setSkullsEnabled(false);
+      dp.startStage(1);
+      let s = dp.step(1);
+      dp.setBossEnabled(false);
+      while (s.state !== 'playing') s = dp.step(1);
+      dp.clearEnemies();
+      dp.placePlayer('mid', startPx);
+      dp.spawnSkull('mid', startPx + d, { dir: -1, skipSpawn: true });
+      const score0 = dp.snapshot().score;
+      dp.clearSounds();
+      key('ArrowRight', true);
+      key(' ', true);
+      s = dp.step(1);
+      key(' ', false);
+      let landed = false;
+      for (let i = 0; i < 120 && s.state === 'playing'; i++) {
+        s = dp.step(1);
+        if (i > 3 && s.player.state === 'ground') { landed = true; break; }
+      }
+      key('ArrowRight', false);
+      const sk = s.enemies[0];
+      out.push({ d, state: s.state, landed, gain: s.score - score0, scoreSounds: dp.sounds().filter((n) => n === 'score').length, popups: s.popups, passed: sk && sk.x < s.player.x });
+    }
+    return out;
+  };
+}
+
+test('J1. 2 面: 歩いてくるファイヤースカルを、同じ足場からジャンプで飛び越えると 100 点(得点表示「100」と効果音)。1 回のジャンプでは同じスカルから 1 回だけ。真上を通る前に当たったときは得点なし', async ({ page }) => {
+  test.setTimeout(120000);
+  await startAtStage(page, STAGE2);
+  const ds = [];
+  for (let d = 8; d <= 70; d += 2) ds.push(d);
+  const res = await page.evaluate(`(${jumpOverScan.toString()})()(100, ${JSON.stringify(ds)})`);
+  const ok = res.filter((r) => r.state === 'playing' && r.passed);
+  const hit = res.filter((r) => r.state !== 'playing' && !r.passed); // 真上を通る前に当たった
+  console.log('J1 飛び越えられた距離: ' + ok.map((r) => r.d).join(' ') + ' / 当たった距離: ' + hit.map((r) => r.d).join(' '));
+  expect(ok.length).toBeGreaterThanOrEqual(5);
+  for (const r of ok) {
+    expect(r.gain, `d=${r.d}`).toBe(100); // ちょうど 100 点(二重に入らない)
+    expect(r.scoreSounds, `d=${r.d}`).toBe(1);
+    expect(r.popups, `d=${r.d}`).toContain('100');
+  }
+  expect(hit.length).toBeGreaterThan(0);
+  for (const r of hit) expect(r.gain, `d=${r.d}`).toBe(0); // 真上を通る前に当たってミスになったら得点なし
+  // (真上を通ってから降りるときにスカルに乗ってしまった場合は、ビールと同じく通った時点で 100 点が入っている)
+  for (const r of res.filter((x) => x.state !== 'playing' && x.passed)) expect(r.gain, `d=${r.d}`).toBe(100);
+});
+
+test('J2. 同じスカルでも、次のジャンプでもう一度飛び越えればまた 100 点(本物のキーボードで往復して 2 回飛び越える)', async ({ page }) => {
+  test.setTimeout(120000);
+  await startAtStage(page, STAGE2);
+  await page.evaluate(() => { window.__dp.clearEnemies(); window.__dp.placePlayer('mid', 100); window.__dp.spawnSkull('mid', 140, { dir: -1, skipSpawn: true }); window.__dp.clearSounds(); });
+  const s0 = await snap(page);
+  // 1 回目: 右へ歩きながら跳ぶ
+  const jumpOver = async (dirKey) => {
+    await page.keyboard.down(dirKey);
+    await page.keyboard.press('Space');
+    let s = await step(page, 1);
+    for (let i = 0; i < 120 && s.state === 'playing'; i++) {
+      s = await step(page, 1);
+      if (i > 3 && s.player.state === 'ground') break;
+    }
+    await page.keyboard.up(dirKey);
+    return s;
+  };
+  let s = await jumpOver('ArrowRight');
+  expect(s.state).toBe('playing');
+  expect(s.score - s0.score).toBe(100);
+  const sk = s.enemies[0];
+  expect(sk.x).toBeLessThan(s.player.x); // スカルは主人公の左(飛び越えた)
+  // スカルから離れて向きを変え、スカルの方へ跳んでもう一度飛び越える
+  await page.evaluate(([id]) => { const g = window.__dp; g.placePlayer('mid', g.snapshot().enemies[0].x + 40); }, [sk.id]);
+  await page.evaluate(() => window.__dp.snapshot());
+  s = await jumpOver('ArrowLeft');
+  // スカルが向きを変えて同じ向きに進んでいた場合に備えて、通り過ぎたかを確かめる
+  const sk2 = s.enemies[0];
+  if (s.state === 'playing' && sk2.x > s.player.x) expect(s.score - s0.score).toBe(200);
+  else expect(s.state).not.toBe('playing');
+  expect((await page.evaluate(() => window.__dp.sounds())).filter((n) => n === 'score').length).toBe((s.score - s0.score) / 100);
+});
+
+test('J3. 1 回のジャンプで 2 体のスカルを飛び越えると、それぞれ 100 点(合計 200 点)', async ({ page }) => {
+  test.setTimeout(120000);
+  await startAtStage(page, STAGE2);
+  // 2 体を少し離して並べ、右へ跳んでまとめて飛び越える
+  const res = await page.evaluate(() => {
+    const dp = window.__dp;
+    const key = (k, d) => window.dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { key: k }));
+    const out = [];
+    for (let d = 10; d <= 40; d += 2) {
+      dp.startStage(1);
+      let s = dp.step(1);
+      dp.setBossEnabled(false);
+      while (s.state !== 'playing') s = dp.step(1);
+      dp.clearEnemies();
+      dp.placePlayer('mid', 100);
+      dp.spawnSkull('mid', 100 + d, { dir: -1, skipSpawn: true });
+      dp.spawnSkull('mid', 100 + d + 8, { dir: -1, skipSpawn: true });
+      const score0 = dp.snapshot().score;
+      key('ArrowRight', true); key(' ', true);
+      s = dp.step(1);
+      key(' ', false);
+      for (let i = 0; i < 120 && s.state === 'playing'; i++) { s = dp.step(1); if (i > 3 && s.player.state === 'ground') break; }
+      key('ArrowRight', false);
+      out.push({ d, state: s.state, gain: s.score - score0, passed: s.enemies.every((e) => e.x < s.player.x) });
+    }
+    return { out };
+  });
+  const both = res.out.filter((r) => r.state === 'playing' && r.passed);
+  expect(both.length).toBeGreaterThan(0);
+  for (const r of both) expect(r.gain, `d=${r.d}`).toBe(200);
+});
+// (釘バットで倒したときの 500 点は K8 で確かめている。ジャンプの得点を足しても変わらない)

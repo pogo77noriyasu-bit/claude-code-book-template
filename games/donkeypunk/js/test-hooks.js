@@ -32,6 +32,9 @@ DP.installTestHooks = function (game, loop, renderer) {
       round: g.round,
       bonus: g.bonus,
       deathReason: g.deathReason,
+      hiScore: g.hiScore,
+      // DEV モード(開発環境で ?dev)の状態。mode: 有効か / invincible: 無敵 / round: 1〜9・R キーで始める周回 / recovered: 無敵中に画面の下から戻った回数
+      dev: { mode: !!g.devMode, invincible: !!g.devInvincible, round: g.devRound || null, recovered: g.devRecovered || 0 },
       player: p && {
         x: p.x,
         y: p.y,
@@ -45,7 +48,7 @@ DP.installTestHooks = function (game, loop, renderer) {
         batPhase: DP.player.batPhase(p),
       },
       popups: g.popups.map((pp) => pp.text),
-      boss: g.boss && { x: g.boss.x, y: g.boss.y, gone: !!g.boss.gone },
+      boss: g.boss && { x: g.boss.x, y: g.boss.y, gone: !!g.boss.gone, girder: g.boss.girder ? g.boss.girder.id : null, state: g.boss.state, holding: g.boss.holding, rules: g.boss.rules || null },
       heroine: g.heroine && { x: g.heroine.x, y: g.heroine.y, gone: !!g.heroine.gone },
       escape: g.escape && {
         phase: g.escape.phase, bossX: g.escape.bossX, bossY: g.escape.bossY,
@@ -53,7 +56,7 @@ DP.installTestHooks = function (game, loop, renderer) {
         ladderX: g.escape.ladderX, ladderBottom: g.escape.ladderBottom, walkFrame: g.escape.walkFrame,
       },
       enemies: g.enemies.map((e) => ({
-        id: e.id, type: e.type, state: e.state, x: e.x, y: e.y, dir: e.dir, t: e.t, landGrace: !!e.landGrace,
+        id: e.id, type: e.type, state: e.state, x: e.x, y: e.y, dir: e.dir, t: e.t, landGrace: !!e.landGrace, turnTo: e.turnTo, speed: e.speed, climbSpeed: e.climbSpeed, sameLevelChase: e.sameLevelChase,
         girder: e.girder ? e.girder.id : null, ladder: e.ladder ? e.ladder.index : null,
       })),
       // 3 面の鉄球の中心と本体の当たり判定(ほかの面では null)
@@ -67,9 +70,44 @@ DP.installTestHooks = function (game, loop, renderer) {
       birds: ((g.level && g.level.birds) || []).map((b) => ({
         id: b.id, line: b.line, color: b.color, dir: b.dir, x: b.x, y: b.y, wing: DP.birds.wing(b), box: DP.birds.hitbox(b),
       })),
-      items: g.items.map((it) => Object.assign({ type: it.type, taken: it.taken }, game._itemHitbox(it))),
+      // 4 面のクリア演出(DP.collapse)の段階と位置
+      collapse: g.collapse && {
+        phase: g.collapse.phase, t: g.collapse.t, total: g.collapse.total, bx: g.collapse.bx, by: g.collapse.by,
+        px: g.collapse.px, py: g.collapse.py, gx: g.collapse.gx, gy: g.collapse.gy, heart: g.collapse.heart,
+        bossGone: g.collapse.bossGone, flash: g.collapse.flash, bullets: g.collapse.bullets.length, shake: g.collapse.shake,
+        debrisLeft: g.collapse.debris.filter((d) => !d.gone).length, scored: !!g.collapse.scored,
+        // 乱射: 撃った向き(DIRS の番号)・手・向きの記録、弾丸の向き、銃口の位置
+        gunDir: g.collapse.gunDir, gunSide: g.collapse.gunSide, shots: g.collapse.shots.slice(),
+        bulletDirs: g.collapse.bullets.map((b) => [b.vx, b.vy]), muzzle: DP.collapse.muzzle(g.collapse),
+        // ガールの着地とお祝い(ハートのあと: 背景・幸せな BGM・花火)
+        girlLanded: g.collapse.girlLanded, celebrateT: g.collapse.celebrateT,
+        fireworks: g.collapse.fireworks.length, fireworkCount: g.collapse.fireworkCount,
+      },
+      // 面間演出(1〜3 面のあと)の段階・段数・警察官・ゴリラ
+      intermission: g.intermission && {
+        from: g.intermission.from, to: g.intermission.to, final: g.intermission.final, phase: g.intermission.phase,
+        t: g.intermission.t, total: g.intermission.total, length: g.intermission.length, tiers: g.intermission.tiers,
+        beam: Object.assign({}, g.intermission.beam), hook: Object.assign({}, g.intermission.hook), pinsIn: g.intermission.pinsIn,
+        flagUp: g.intermission.flag.up, fade: g.intermission.fade, bossY: g.intermission.boss.y, bubble: g.intermission.boss.shout > 0 ? g.intermission.boss.bubble : '',
+        cops: g.intermission.cops.map((c) => ({ x: c.x, pose: c.pose, walking: !!c.walking, step: c.step, side: c.side })),
+        crowd: g.intermission.crowd.map((o) => ({ kind: o.kind, x: o.x, y: o.y, pose: o.pose, walking: o.walking, facing: o.facing, label: o.label })),
+      },
+      clearBonus: g.clearBonus,
+      // 4 面の安全ピン(pulled: 抜けたか)
+      pins: ((g.level && g.level.pins) || []).map((p) => ({ id: p.id, girder: p.girder, x: p.x, pulled: p.pulled })),
+      pinOrder: (g.level && g.level.pinOrder) ? g.level.pinOrder.slice() : [], // 4 面: 抜いた順(ミス後の抜き直しにも使う)
+      copSmashWaits: (g.level && g.level.copSmashWaits) ? g.level.copSmashWaits.slice() : [], // 4 面: 釘バットで倒されたポリスマンの枠の残り待ち時間
+      copTimer: g.level ? g.level.copTimer : undefined, // 4 面: 前の出現からの経過ステップ
+      // 4 面のボーナスアイテム(taken: 取ったか。girder: 乗っている床の鉄骨、y: 足元)
+      prizes: ((g.level && g.level.prizes) || []).map((p) => {
+        const f = DP.mechanics.prizes.floorOf(g.level, p);
+        return { id: p.id, type: p.type, x: p.x, y: f.y, girder: f.girder ? f.girder.id : null, taken: p.taken, gone: !!p.gone, score: DP.config.score.prize[p.type] };
+      }),
+      items: g.items.map((it) => Object.assign({ type: it.type, taken: it.taken, gone: !!it.gone }, game._itemHitbox(it))),
       hazards: g.hazards.map((h) => ({
-        id: h.id, type: h.type, x: h.x, y: h.y, state: h.state,
+        id: h.id, type: h.type, x: h.x, y: h.y, state: h.state, dir: h.dir,
+        // 1 面の 2 個セット: pairGroup = 片割れの元のセットの id / piece = 片割れか / box = 当たり判定 / jumpedOver = 飛び越えの得点が入ったか
+        pairGroup: h.pairGroup, piece: !!h.piece, box: DP.hazards.hitbox(h), jumpedOver: !!h.jumpedOver,
         girder: h.girder ? h.girder.id : null,
         ladder: h.ladder ? h.ladder.index : null,
       })),
@@ -101,9 +139,17 @@ DP.installTestHooks = function (game, loop, renderer) {
         index: l.index, x: l.x, lower: l.lower.id, upper: l.upper.id, topY: l.topY, bottomY: l.bottomY,
         broken: l.broken, climbTopY: l.climbTopY, stubBottomY: l.stubBottomY,
       })),
-      escapeLadders: g.level.stage.escape.ladders.slice(),
+      escapeLadders: g.level.stage.escape ? g.level.stage.escape.ladders.slice() : [], // 4 面(第 1 段階)は逃走演出の配置がない
     },
     surfaceY: (id, x) => geo.surfaceY(g.level.byId[id], x),
+    // 4 面: 指定の安全ピンを、得点・演出なしで抜いた状態にする(床に穴が開く。抜く順番の検証用)
+    pullPin: (id) => {
+      const pin = (g.level.pins || []).find((p) => p.id === id);
+      if (!pin) return false;
+      const ok = DP.mechanics.pins.pull(g.level, pin, [g.player, g.boss].concat(g.enemies));
+      if (ok) DP.cops.dropIntoHole(g.enemies, g.level, pin); // 足元に穴が開いたポリスマンは落ちる(ゲーム中と同じ)
+      return ok;
+    },
     // ループを手動にして、決まった回数だけ進める
     setManual: (on) => { loop.manual = !!on; },
     step: (n) => { for (let i = 0; i < (n || 1); i++) loop.step(); return snapshot(); },
@@ -113,6 +159,12 @@ DP.installTestHooks = function (game, loop, renderer) {
     setWreckingBallEnabled: (on) => { g.wreckingBallOff = !on; },
     clearHazards: () => { g.hazards = []; },
     spawnHazard: (type, girderId, x) => game._spawnHazard(type, girderId, x).id,
+    // 障害物を、ハシゴ index を降りている途中(下端 y)に置き直す(上から降ってくる瓶・缶の当たり判定を確かめるテスト用)
+    placeHazardOnLadder: (id, index, y) => {
+      const h = g.hazards.find((x) => x.id === id);
+      const l = g.level.ladders[index];
+      Object.assign(h, { state: 'ladder', ladder: l, x: l.x, y, girder: null, vx: 0, vy: 0 });
+    },
     // プレイヤーを鉄骨の上の指定位置に置く
     placePlayer: (girderId, x) => {
       const p = g.player;
@@ -139,8 +191,20 @@ DP.installTestHooks = function (game, loop, renderer) {
       DP.config.hazard.ladderChance = v === null ? DP.installTestHooks._origChance : v;
     },
     setLives: (n) => { g.lives = n; },
+    // 描画の重さを測るテスト用: renderer.render に渡すゲームの本体
+    gameForRender: () => game,
+    // 主人公をミスにする(reason: 'fall' など。4 面のミス後の再開を確かめるテスト用)
+    killPlayer: (reason) => game._killPlayer(reason || 'fall'),
     // ファイヤースカル: 自動の出現を止める・出す / 指定の場所に出す(skipSpawn で出現の演出を省く)/ 全部消す
     setSkullsEnabled: (on) => { g.skullsEnabled = !!on; },
+    // 4 面の怒ったポリスマン: 自動の出現を止める・出す / 指定の場所に出す(opts: { dir, skipSpawn, round })
+    setCopsEnabled: (on) => { g.copsEnabled = !!on; },
+    spawnCop: (girderId, x, opts) => {
+      const gd = g.level.girders.find((q) => (q.floor || q.id) === girderId && x >= q.x1 && x <= q.x2) || g.level.byId[girderId];
+      const e = DP.cops.create(g.level, gd, x, Object.assign({ round: g.round }, opts || {}));
+      g.enemies.push(e);
+      return e.id;
+    },
     // 3 面のパンクニワトリの自動の出現を止める / 戻す(出ている鳥はそのまま飛ぶ)
     setBirdsEnabled: (on) => { g.birdsEnabled = !!on; },
     // ライン index(0 = いちばん上)に鳥を 1 羽出す。x を省くと飛んでくる側の画面の外から

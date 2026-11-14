@@ -77,8 +77,8 @@ for (const name of ['oneTwo', 'proto']) {
   });
 }
 
-test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・3 面・2 周目で同じ曲。面の切り替えで 2 曲が重ならない', async ({ page }) => {
-  test.setTimeout(120000); // 3 つの面を 1 ステップずつ確かめながら回るので長くかかる
+test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・3 面・4 面・2 周目で同じ曲。面の切り替えで 2 曲が重ならない', async ({ page }) => {
+  test.setTimeout(240000); // 4 つの面を 1 ステップずつ確かめながら回るので長くかかる
   await page.goto('./?test');
   await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
   expect(await music(page)).toBe(null); // タイトルでは流さない
@@ -93,19 +93,29 @@ test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・
   expect(s.stageIndex).toBe(0);
   expect(await music(page)).toBe('main');
 
-  // 1 面 → 2 面 → 3 面 → 1 面(2 周目)とクリアしていく。どの時点でも流れている BGM は 1 つ以下
+  // 1 面 → 2 面 → 3 面 → 4 面 → 1 面(2 周目)とクリアしていく。どの時点でも流れている BGM は 1 つ以下
   const seen = [];
-  for (const expected of [1, 2, 0]) {
-    await page.evaluate(() => { window.__dp.clearHazards(); window.__dp.placePlayer('top', 240); });
-    await step(page, 1);
-    await page.evaluate(() => window.__dp.placePlayer('top', 205));
-    s = await step(page, 1);
-    expect(s.state).toBe('escape');
-    for (let i = 0; i < 1200 && s.state !== 'playing'; i++) {
+  for (const expected of [1, 2, 3, 0]) {
+    if (s.stageId === 'rivets') {
+      // 4 面: 7 本を抜いた状態にして、8 本目を本物のキーボードで歩いて抜く → クリア演出(collapse)
+      await page.evaluate(() => { for (const id of ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']) window.__dp.pullPin(id); window.__dp.placePlayer('F4', 420); });
+      await page.keyboard.down('ArrowLeft');
+      for (let i = 0; i < 80 && s.state === 'playing'; i++) s = await step(page, 1);
+      await page.keyboard.up('ArrowLeft');
+      expect(s.state).toBe('collapse');
+    } else {
+      await page.evaluate(() => { window.__dp.clearHazards(); window.__dp.placePlayer('top', 240); });
+      await step(page, 1);
+      await page.evaluate(() => window.__dp.placePlayer('top', 205));
+      s = await step(page, 1);
+      expect(s.state).toBe('escape');
+    }
+    for (let i = 0; i < 1500 && s.state !== 'playing'; i++) {
       if (s.state === 'clear' && i % 20 === 0) await page.keyboard.press('Enter');
       s = await step(page, 1);
       expect(await active(page)).toBeLessThanOrEqual(1);
-      if (s.state === 'escape' || s.state === 'clear') expect(await music(page)).toBe(null);
+      // 演出・クリア中は止める。ただし 4 面のクリア演出は、ハートが出たら幸せな曲('happy')を ROUND CLEAR の間も流す
+      if (s.state === 'escape' || s.state === 'collapse' || s.state === 'clear') expect(await music(page)).toBe(s.collapse && s.collapse.heart ? 'happy' : null);
       if (s.state === 'ready') expect(await music(page)).toBe('main');
     }
     expect(s.state).toBe('playing');
@@ -115,7 +125,7 @@ test('M3. ゲーム開始(READY)から通常の BGM が流れ、1 面・2 面・
     seen.push([s.stageIndex, s.round]);
     await page.evaluate(() => window.__dp.setBossEnabled(false));
   }
-  expect(seen).toEqual([[1, 1], [2, 1], [0, 2]]);
+  expect(seen).toEqual([[1, 1], [2, 1], [3, 1], [0, 2]]);
 });
 
 test('M4. 釘バット使用中は釘バットの BGM が優先され、切れると通常の BGM に戻る(重ならない)', async ({ page }) => {

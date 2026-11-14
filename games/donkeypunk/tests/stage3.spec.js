@@ -1,7 +1,7 @@
 // ドンキーパンク 3 面「解体中のスクワット」の第 1 段階のテスト
 // (背景・足場・ハシゴ・循環リフト A・往復リフト B・乗り降り・落下・クリアルート・面の順番・BGM。敵はまだいない)
 const { test, expect } = require('@playwright/test');
-const { snap, step, watchConsoleErrors, hold } = require('./helpers');
+const { snap, step, watchConsoleErrors, hold, passIntermission, leaveClear } = require('./helpers');
 
 watchConsoleErrors(test);
 
@@ -150,7 +150,7 @@ function playRoute(page, route) {
 
 test('L1. 3 面は 1・2 面のあとに並び、地面・1 階・割れた 2 階・がれきの階段・崩れた屋上・ガールの足場・右の小さな足場・2 つのリフトでできている', async ({ page }) => {
   const s = await start3(page);
-  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse', 'squat']);
+  expect(await page.evaluate(() => window.__dp.stageIds())).toEqual(['girders', 'livehouse', 'squat', 'rivets']); // 4 面(rivets)まで
   const lv = await level(page);
   const byId = Object.fromEntries(lv.girders.map((g) => [g.id, g]));
   // 固定の足場はすべて平ら。段の間隔はハシゴやリフトを使わずに落ちるとミスになる高さ(48px)より大きい
@@ -704,10 +704,10 @@ test('L11. がれきの階段を実際のキー操作で跳んで登り、2 階�
   }
 });
 
-test('L12. 面の順番: 2 面をクリアすると 3 面、3 面をクリアすると 1 面(2 周目)へ戻る。3 面でも共通 BGM が流れる', async ({ page }) => {
+test('L12. 面の順番: 2 面をクリアすると 3 面、3 面をクリアすると 4 面へ進む(周回数はそのまま)。3 面でも共通 BGM が流れる', async ({ page }) => {
   await start3(page);
   expect(await page.evaluate(() => window.__dp.music())).toBe('main');
-  // 3 面をクリア(ガールに触れる)→ 逃走演出 → クリア表示 → ENTER で 1 面(2 周目)
+  // 3 面をクリア(ガールに触れる)→ 逃走演出 → クリア表示 → ENTER で 4 面(1 周目のまま。1 面に戻るのは 4 面のクリア後)
   await page.evaluate(() => window.__dp.placePlayer('top', 240));
   await step(page, 1);
   await page.evaluate(() => window.__dp.placePlayer('top', 205));
@@ -715,12 +715,11 @@ test('L12. 面の順番: 2 面をクリアすると 3 面、3 面をクリアす
   expect(s.state).toBe('escape');
   for (let i = 0; i < 900 && s.state === 'escape'; i++) s = await step(page, 1);
   expect(s.state).toBe('clear');
-  s = await step(page, 160);
-  await page.keyboard.press('Enter');
-  s = await step(page, 1);
+  s = await leaveClear(page); // クリア表示は自動で次へ(ENTER なし)
+  s = await passIntermission(page); // 1〜3 面のあとは面間演出を見てから次の面
   expect(s.state).toBe('ready');
-  expect(s.stageId).toBe('girders');
-  expect(s.round).toBe(2);
+  expect(s.stageId).toBe('rivets');
+  expect(s.round).toBe(1);
   expect(await page.evaluate(() => window.__dp.music())).toBe('main');
 });
 
@@ -1002,6 +1001,7 @@ test('L14. Playwright の本物のキーボード操作だけで、通常ルー�
 });
 
 test('L15. 下ルートの安全確認: u2 のどこから右へ跳んでもミスにならない(左寄りからは 1 階の床の裏に頭をぶつけて u2 に戻る)。u3・P1 に立っていても、リフト B は降りてこない(重ならない)', async ({ page }) => {
+  test.setTimeout(180000); // 位置を 1px 単位で変えて何度も始め直すので、全テストを並列で回すと 60 秒を超えることがある
   // u2 の左寄り(x 252〜270。1 階の床の真下)から右へ跳ぶ → 頭をぶつけて落ちるが、u2 の上に戻ってミスにならない
   for (let x = 252; x <= 270; x += 2) {
     await start3(page);

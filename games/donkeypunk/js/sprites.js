@@ -36,6 +36,7 @@ DP.sprites = (function () {
     e: '#d8e4f0', // ドクロの影(青白い白)。パンクニワトリの羽の影にも使う
     U: '#3a8cff', // 青(ニワトリのトサカ)
     V: '#3cd04a', // 緑(ニワトリのトサカ)
+    m: '#0e5222', // 濃い緑(札束のお札の縁取り)
   };
 
   // 文字列の配列 → { w, h, rows }(短い行は右を透明で埋める)
@@ -132,7 +133,138 @@ DP.sprites = (function () {
   // 主人公の 1 コマ = モヒカンと顔(HEAD)+ 体(12 幅で書いて広げる)
   const punk = (bodyRows) => def(HEAD.concat(bodyRows.map(pad4)));
 
+  // 怒ったポリスマン(雑魚警察官。右向き)。14x18。面間演出の作業員と、4 面の雑魚敵(あとで追加)で同じドット絵を使う。
+  // ツバのある紺の制帽に金のバッジ、つり上がった太い眉、への字口、赤い頬で「いつも怒っている」顔。
+  // 制服は紺(N)に明るい紺(n)の前立て、金ボタン(Y)、黒いベルトとブーツ
+  const COP_HEAD = [
+    '....NNNNNN....',
+    '...NNNNYNNN...',
+    '...NNNNNNNNKK.', // 帽子のツバ(前 = 右へ突き出す)
+    '....SSSSSSS...',
+    '....KKKSKKK...', // つり上がった太い眉
+    '....SWKSSWKS..',
+    '....SSSSsSSS..',
+    '....PSKKKSP...', // 赤い頬とへの字口
+    '.....SSSSS....',
+  ];
+  const COP_BODY = [
+    '....NNNYNN....',
+    '...NNNNNNNN...',
+    '..SNnNNYNnNS..', // 両手は体の横
+    '..SNnNNNNnNS..',
+    '...NKKKYKKN...',
+    '...NNNNNNNN...',
+  ];
+  const COP_LEGS_A = ['...NNN..NNN...', '...NN....NN...', '..KKK...KKKK..'];
+  const COP_LEGS_B = ['....NNNNNN....', '....NN.NN.....', '...KKKKKKK....'];
+  // 行 from〜to の col 列を ch にする(腕を描き足す)
+  const setCol = (rows, col, from, to, ch) => rows.map((r, i) => (i >= from && i <= to ? r.slice(0, col) + (i === from ? ch[0] : ch[1]) + r.slice(col + 1) : r));
+  // 両腕を頭の上へ上げる(鉄骨をかつぐ・万歳)。手(S)は頭の上、腕は制服の紺
+  const armsUp = (rows) => setCol(setCol(rows, 2, 0, 11, 'SN'), 11, 0, 11, 'SN');
+  const copUpBody = COP_BODY.map((r) => r.replace(/S/g, 'N'));
+  const cop = (head, body, legs) => def(head.concat(body, legs));
+  // 背中側(ハシゴを登る)。帽子の後ろ・短い髪・制服の背中。左手を上のハシゴの段へ伸ばす(左右反転でもう 1 コマ)
+  const COP_BACK = [
+    '....NNNNNN....',
+    '...NNNNNNNN...',
+    '...NNNNNNNN...',
+    '....kkkkkk....',
+    '....kkkkkk....',
+    '....kSSSSk....',
+    '.....SSSS.....',
+    '...NNNNNNNN...',
+    '..NNNNNNNNNN..',
+    '..NNNNNNNNNN..',
+    '..NNNNNNNNNN..',
+    '...NKKKKKKN...',
+    '...NNNNNNNN...',
+    '...NNNNNNNN...',
+    '...NNN..NNN...',
+    '...NN....NN...',
+    '...NN....NN...',
+    '..KKK....KKK..',
+  ];
+
   const DATA = {
+    // ---- 4 面のボーナスアイテム(すべてオリジナル) ----
+    // エロ本(17×18。2 倍で描く): ピンクの表紙にカタカナの「エロ」を大きく、その下に少し小さく「本」(白い文字)。
+    // 右下に赤いビキニのお姉さんの小さな記号的なシルエット(顔・髪・水着だけ)
+    hbook: def([
+      'ppppppppppppppppp',
+      'pPPPPPPPPPPPPPPPp',
+      'pPPPWWWPPPWWWWWPp',
+      'pPPPPWPPPPWPPPWPp',
+      'pPPPPWPPPPWPPPWPp',
+      'pPPPPWPPPPWPPPWPp',
+      'pPPWWWWWPPWWWWWPp',
+      'pPPPPPPPPPPPPPPPp',
+      'pPPPPPPPPPPKKKPPp',
+      'pPPPPWPPPPKSSSKPp',
+      'pPWWWWWWWPPSSSPPp',
+      'pPPPWWWPPPPPSPPPp',
+      'pPPWPWPWPPRRSRRPp',
+      'pPWPPWPPWPPSSSPPp',
+      'pPPWWWWWPPPRRRPPp',
+      'pPPPPWPPPPPSPSPPp',
+      'pPPPPPPPPPPSPSPPp',
+      'ppppppppppppppppp'
+    ]),
+    // ビール瓶(8×15): 立てて置いた茶色の瓶に、金の王冠とクリーム色のラベル(赤い帯)。1 面の転がる緑の瓶(横向き)とは色・向き・大きさで区別
+    beerUp: def([
+      '...YY...',
+      '...tt...',
+      '...tt...',
+      '...Tt...',
+      '..tTtt..',
+      '.ttTttt.',
+      '.tTtttt.',
+      '.LLLLLL.',
+      '.LCCCCL.',
+      '.LLLLLL.',
+      '.tTtttt.',
+      '.tTtttt.',
+      '.tTtttt.',
+      '.tTtttt.',
+      '..tttt..',
+    ]),
+    // 札束(18×13。2 倍で描く): 上は正面から見たお札 1 枚(濃い緑の縁取り・左に「¥」・右に肖像の丸)、
+    // 下は重なった紙の厚み(白い縞)。真ん中に赤い縁取りの白い帯封と赤い印
+    cash: def([
+      'mmmmmmmrWWrmmmmmmm',
+      'mhghhhgrWWrhhhhhhm',
+      'mhhghghrWWrhggghhm',
+      'mhgggggrCWrgKKKghm',
+      'mhhhghhrCCrgSSSghm',
+      'mhgggggrWCrgsSsghm',
+      'mhhhghhrWWrhggghhm',
+      'mhhhhhhrWWrhhhhhhm',
+      'mmmmmmmrWWrmmmmmmm',
+      'mWWWWWWrWWrWWWWWWm',
+      'mccccccrWWrccccccm',
+      'mWWWWWWrWWrWWWWWWm',
+      'mmmmmmmrWWrmmmmmmm'
+    ]),
+    // 四角い金属製のゴミ箱(7×7。1 面の斜め投げ): 銀のふた・黒い縁・灰色のたての溝。瓶(緑)・缶(赤・丸)と色と形で区別する
+    trash: def([
+      '.kkkkk.',
+      'kGGGGGk',
+      'kkkkkkk',
+      'kcbcbck',
+      'kcbcbck',
+      'kcbcbck',
+      '.kkkkk.',
+    ]),
+    // 怒ったポリスマン: 歩く 2 枚 / 鉄骨をかつぐ 2 枚 / 敬礼 / 万歳(口を開けて叫ぶ)
+    copWalkA: cop(COP_HEAD, COP_BODY, COP_LEGS_A),
+    copWalkB: cop(COP_HEAD, COP_BODY, COP_LEGS_B),
+    copCarryA: def(armsUp(COP_HEAD.concat(copUpBody, COP_LEGS_A))),
+    copCarryB: def(armsUp(COP_HEAD.concat(copUpBody, COP_LEGS_B))),
+    copSalute: def(setCol(COP_HEAD.concat(COP_BODY.map((r, i) => (i >= 2 && i <= 3 ? r.slice(0, 11) + 'N' + r.slice(12) : r)), COP_LEGS_A), 12, 2, 11, 'SN')),
+    // ハシゴを登る(背中向き。左手を上へ。左右反転して手を入れ替える)
+    copClimb: def(setCol(setCol(COP_BACK, 2, 0, 8, 'SN'), 11, 8, 12, 'NN').map((r, i) => (i === 12 ? r.slice(0, 11) + 'S' + r.slice(12) : r))),
+    // 目を回して気絶(目をつぶって口を「O」に開ける。renderer が頭の上に星を回す)
+    copDizzy: cop(COP_HEAD.map((r, i) => (i === 5 ? '....SKKSSKKS..' : i === 7 ? '....PSKWKSP...' : r)), COP_BODY, COP_LEGS_A),
+    copCheer: def(armsUp(COP_HEAD.map((r, i) => (i === 7 ? '....PSKWKSP...' : r)).concat(copUpBody, COP_LEGS_A))),
     punkStand: punk([
       '...KKKKKK...',
       '..KKGKKKKS..',

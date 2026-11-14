@@ -60,4 +60,38 @@ DP.stages.push({
   throwInterval: { min: 110, max: 200 },
   // 缶の出る割合(残りはビール瓶)
   canRatio: 0.4,
+  // 斜め投げ(面ごとに投げる物と動きを変えられる。js/hazards.js)。
+  //   type: 投げる物 / motion: 'zigzag'(ジグザグ落下。DP.hazards.zigzag)か 'arc'(放物線。DP.hazards.launch)/
+  //   handDx・handDy: ゴリラの足元からの投げ始めの位置(頭の上)
+  // ジグザグ落下(1 面のゴミ箱): 投げるたびに水平から angleMin〜angleMax 度の角度を選び(coreChance の割合で coreMin〜coreMax 度の中心の範囲、
+  // 残りはそれ以外の範囲から一様に)、
+  // speed × 周回の速さの倍率(瓶・缶と同じ。R5 2.4・R10 2.7 px/ステップ)で、重力なしにまっすぐ斜め下へ進む。
+  // 鉄骨に当たるたびに左右だけ反転して(角度は同じ)その鉄骨を通り抜け、最下段の下へ抜けたら消える。R5・R10 のプレイを見てここで調整する
+  // 角度は最初 45〜75 度だったが、縦に落ちすぎて画面の左側の狭い範囲に集まったので、20〜45 度(25〜35 度が中心)にした。
+  // それでも鉄骨のたびの反転で投げた位置(左上)のまわりを往復して左側に閉じ込められたので、最初の 1 区間(最初の鉄骨に当たるまで)だけ
+  // firstAngleMin〜firstAngleMax 度(一様)で横へ長く飛ばし、最初の鉄骨から 20〜45 度に切り替える(中央・右側にも飛んでくる)。
+  // 10〜25 度では左 64%・中央 29%・右 7% と左寄りだったので、5〜15 度にした(左右にほぼ均等に散らばる)
+  lob: { type: 'trash', motion: 'zigzag', handDx: 18, handDy: -54, speed: 1.5, angleMin: 20, angleMax: 45, coreMin: 25, coreMax: 35, coreChance: 0.7, firstAngleMin: 5, firstAngleMax: 15 },
+  // 周回ごとの難しさ(1 行目が R1。R11 以降は最後の行 = R10 を使う。DP.hazards.roundRules)。
+  // 速さと投げる間隔は game.js の difficulty() のまま(R7・R6 で上限)。R10 まではここで段階的に難しくする。
+  // 開始時(ミス後の再開も)の鉄骨の上には、どの周回でも瓶・缶はない。瓶・缶はすべてゴリラが投げて出す。
+  //   openingThrows: プレイが始まってすぐ、ゴリラが続けて投げる本数(開幕の連続投げ。同じ種類で、端と端を 140px 以上あける)
+  //   openingPairs: 開幕の連続投げのうち、必ず 2 個セットにする番号(何本目か)
+  //   pairRate: ゴリラが投げるときの 2 個セットの割合 / doubleRate: 連投の割合(開幕の連続投げの間は連投しない)
+  //   trashRate: 通常の投げ方のうち、ゴミ箱(斜め投げ)に置き換える割合。開幕の連続投げ・連投の 2 本目はゴミ箱にしない。
+  //   0 の周回(R1〜R4)では乱数を引かないので、R1〜R4 の投げる時刻・種類・軌跡は今までと同じ
+  // R1 はすべて 0(乱数も引かないので、R1 の投げる時刻・種類・軌跡は改修前と同じ)
+  // 開幕の本数は、開始時の配置があったころと「無敵でよけずに最短ルートを進んだときにぶつかる数」がそろうよう、提案から ±1 本で調整した
+  roundRules: [
+    { openingThrows: 0, openingPairs: [], pairRate: 0, doubleRate: 0, trashRate: 0 }, // R1
+    { openingThrows: 1, openingPairs: [], pairRate: 0.1, doubleRate: 0, trashRate: 0 }, // R2
+    { openingThrows: 2, openingPairs: [], pairRate: 0.15, doubleRate: 0, trashRate: 0 }, // R3
+    { openingThrows: 2, openingPairs: [2], pairRate: 0.2, doubleRate: 0.1, trashRate: 0 }, // R4
+    { openingThrows: 5, openingPairs: [3], pairRate: 0.25, doubleRate: 0.1, trashRate: 0.1 }, // R5(提案の 4 本から +1)
+    { openingThrows: 5, openingPairs: [3], pairRate: 0.3, doubleRate: 0.15, trashRate: 0.1 }, // R6(提案の 4 本から +1)
+    { openingThrows: 6, openingPairs: [3, 4], pairRate: 0.35, doubleRate: 0.15, trashRate: 0.2 }, // R7(提案の 5 本から +1)
+    { openingThrows: 6, openingPairs: [3, 4], pairRate: 0.4, doubleRate: 0.2, trashRate: 0.2 }, // R8(提案の 5 本から +1)
+    { openingThrows: 6, openingPairs: [4, 5], pairRate: 0.45, doubleRate: 0.2, trashRate: 0.25 }, // R9
+    { openingThrows: 6, openingPairs: [3, 4, 5], pairRate: 0.5, doubleRate: 0.25, trashRate: 0.3 }, // R10 以降
+  ],
 });
