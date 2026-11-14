@@ -10,7 +10,7 @@ watchConsoleErrors(test);
 const STAGE4 = 3;
 const prize = (s, id) => s.prizes.find((p) => p.id === id);
 
-test('P1. 配置: 4 面に 3 個(ビール瓶 300 点・F1 x=450 / エロ本 500 点・F3 x=60 / 札束 800 点・F4 x=452)。どれも穴(ピンの x±12)の端から 20px 以上、ポリスマンの出現地点から 40px 以上離れている。1〜3 面にはない', async ({ page }) => {
+test('P1. 配置: 4 面に 3 個(ビール瓶 300 点・F1 x=450 / エロ本 500 点・F3 x=60 / 札束 800 点・F4 x=452)。どれも穴(ピンの x±12)の端から 20px 以上、ポリスマンの出現地点から 40px 以上離れている。1・2 面にはない(3 面には別の種類が 6 個)', async ({ page }) => {
   await startAtStage(page, STAGE4);
   const s = await snap(page);
   expect(s.prizes.map((p) => [p.id, p.type, p.girder, p.x, p.score, p.taken])).toEqual([
@@ -23,10 +23,15 @@ test('P1. 配置: 4 面に 3 個(ビール瓶 300 点・F1 x=450 / エロ本 500
     for (const pin of st.pins.filter((q) => q.girder === p.girder)) expect(Math.abs(p.x - pin.x) - 12, `${p.id} と ${pin.id}`).toBeGreaterThanOrEqual(20);
     for (const sp of st.cops.spawns.filter((q) => q.girder === p.girder)) expect(Math.abs(p.x - sp.x), `${p.id} と出現地点`).toBeGreaterThanOrEqual(40);
   }
-  for (const i of [0, 1, 2]) {
+  // 1・2 面にはない(3 面にも同じ仕掛けで 6 個ある。tests/stage3prizes.spec.js で確かめる。4 面の 3 個とは種類が違う)
+  for (const i of [0, 1]) {
     await startAtStage(page, i);
     expect((await snap(page)).prizes, `${i + 1} 面`).toEqual([]);
   }
+  await startAtStage(page, 2);
+  const p3 = (await snap(page)).prizes;
+  expect(p3).toHaveLength(6);
+  expect(p3.some((p) => ['beer', 'hbook', 'cash'].includes(p.type))).toBe(false);
 });
 
 test('P2. 本物のキーボード操作: スタートからハシゴを登って F1 の右端まで歩くとビール瓶を取れる(300 点・得点表示「300」・効果音 prize・アイテムが消える)。もう一度通っても得点は増えない', async ({ page }) => {

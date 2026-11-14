@@ -160,16 +160,31 @@ DP.mechanics = {
       if (!def) return;
       const c = DP.config.bird;
       if (!lv.birds) this.init(lv);
+      // 周回ごとの値(R1 は以前と同じ: 間隔 480・1 ラインに 1 羽・火炎なし)。表がなければ以前の決まり
+      const rule = DP.birds.rules(def, g.round) || { interval: c.interval, perLine: 1, maxTotal: Infinity, fire: null };
       def.lines.forEach((line, i) => {
         lv.birdTimers[i]++;
-        const due = lv.birdTimers[i] >= (lv.birdSpawned[i] ? c.interval : line.firstSpawn);
-        if (g.birdsEnabled && due && !lv.birds.some((b) => b.line === i)) {
+        const due = lv.birdTimers[i] >= (lv.birdSpawned[i] ? rule.interval : line.firstSpawn);
+        // そのラインに飛んでいる数が perLine 未満で、画面全体でも maxTotal 未満なら出す(満員の間は待つ)
+        const onLine = lv.birds.filter((b) => b.line === i).length;
+        if (g.birdsEnabled && due && onLine < rule.perLine && lv.birds.length < rule.maxTotal) {
           lv.birds.push(DP.birds.create(line, i));
           lv.birdTimers[i] = 0;
           lv.birdSpawned[i] = true;
         }
       });
-      for (const b of lv.birds) DP.birds.update(b);
+      // 移動と火炎のサイクル(R5 以降)。噴き始めたら噴射音(何羽が同時でも fireSoundGap ステップに 1 回まで)
+      let fired = false;
+      for (const b of lv.birds) {
+        DP.birds.update(b);
+        // 動いているリフトに乗っている主人公がいれば、縦穴の上を跳ねて越える(リフトの上では逃げ場がないため)
+        DP.birds.decideHop(b, lv, g.player);
+        if (DP.birds.updateFire(b, rule.fire, lv.stage)) fired = true;
+      }
+      if (fired && !(g.frame - (lv.birdFireSound || -99) < c.fireSoundGap)) {
+        lv.birdFireSound = g.frame;
+        ctx.audio.play('birdFire');
+      }
       const p = g.player;
       // 釘バットで倒す(体に当たるより先に判定する。ビール・スカルと同じ)
       const bb = c.batSmash ? DP.player.batHitbox(p) : null;
@@ -188,6 +203,10 @@ DP.mechanics = {
       if (lv.birds.some((b) => DP.geometry.overlaps(pb, DP.birds.hitbox(b)))) {
         if (ctx.killPlayer('hazard')) return; // DEV の無敵中はミスにならないので、跳び越えの得点の判定へ進む
       }
+      // 火炎(噴いている間だけ)に触れたら炎上のミス(黒こげの演出)。釘バットで倒した鳥は上で外したので、その火炎も残らない
+      if (lv.birds.some((b) => { const fb = DP.birds.fireHitbox(b, rule.fire); return fb && DP.geometry.overlaps(pb, fb); })) {
+        if (ctx.killPlayer('burn')) return;
+      }
       // ジャンプで跳び越えたら 100 点(1 面のビールを跳び越えたときと同じ処理 ctx.checkJumpOver。1 羽につき 1 回)。
       // その鳥のラインの床(屋上の端のがれき y152・K1 y150 も ① の床なので ±jumpOverFloor px まで)から
       // ジャンプしたときだけ。歩いて踏み外して落ちている間や、別の高さの足場で跳んだとき、
@@ -196,6 +215,157 @@ DP.mechanics = {
       for (const b of lv.birds) {
         ctx.checkJumpOver(b, (pl) => pl.jumpFromY != null && Math.abs(pl.jumpFromY - b.y) <= tol);
       }
+    },
+  },
+
+  // 2 面: ゴリラ警官のバズーカ砲と蛇行ミサイル(js/bazooka.js。周回ごとの値はステージデータの bazooka.rounds)。
+  // ゴリラの段階(lv.bazooka.phase):
+  //   'wait'   … 次の構えまで待つ(cool が 0 になり、撃ってよい場面で、飛んでいる数が maxAlive 未満なら構える)
+  //   'raise'  … バズーカを肩に担ぎ上げる(raiseFrames。装填音 bazookaReady)
+  //   'aim'    … 主人公の方へ砲身を向け続ける(周回の aim ステップ。砲口が赤く光る = 予告)
+  //   'recoil' … 発射の反動(recoilFrames)。発射は aim の最後のステップで、その瞬間の主人公の体の中心へ向けて角度を固定する
+  // 撃ってよい場面(canFire)でなくなったら、構えを解いて wait に戻る(少し待ってから構え直す)。
+  // ミサイル本体に触れると炎上のミス('burn')。釘バットで壊すと 1,000 点と派手な爆発(巻き添えなし)。
+  // ジャンプ中に真下を通ったら 100 点(1 本 1 回)。状態はレベルに持つので、ミスするとミサイルも煙も消えて数え直す
+  bazooka: {
+    init(lv) {
+      lv.bazooka = {
+        phase: 'wait',
+        t: 0, // 今の段階の経過ステップ
+        cool: DP.config.missile.firstDelay, // 次に構えられるまでの残り(最初はプレイ開始から 2 秒)
+        angle: 0, // 砲身の向き(度)
+        flip: false, // 左向きか
+        flash: 0, // 砲口の閃光の残り
+        shake: 0, // 爆発で画面が揺れる残り
+        fired: 0, // 撃った数(テスト用)
+        missiles: [],
+        smoke: [],
+        blasts: [],
+      };
+    },
+    // ミサイル・煙・爆発を片付けて、ゴリラを待機に戻す(クリアの逃走演出を始めるとき)
+    clear(lv) {
+      if (!lv.bazooka) return;
+      Object.assign(lv.bazooka, { phase: 'wait', t: 0, flash: 0, shake: 0, missiles: [], smoke: [], blasts: [] });
+    },
+    // 今、撃ってよい場面か(理不尽な即死を防ぐ)
+    canFire(g) {
+      const p = g.player;
+      if (!g.bazookaEnabled || !g.boss || !g.boss.enabled || g.boss.gone) return false;
+      if (p.state === 'dead') return false;
+      // ガールの足場と、そこへの最後のハシゴ(noHazard)にいる間は撃たない
+      if (p.girder && p.girder.noHazard) return false;
+      if (p.ladder && p.ladder.noHazard) return false;
+      // 砲口のすぐ近くでは撃たない
+      const t = DP.bazooka.targetOf(p);
+      const a = DP.bazooka.aim(g.boss, t);
+      const mz = DP.bazooka.muzzle(g.boss, a.angle, a.flip);
+      return Math.hypot(t.x - mz.x, t.y - mz.y) >= DP.config.missile.minDist;
+    },
+    // 発射: 今の主人公の体の中心へ向けて角度を決め、砲口からミサイルを出す
+    fire(g, B, r) {
+      const target = DP.bazooka.targetOf(g.player);
+      const a = DP.bazooka.aim(g.boss, target);
+      B.angle = a.angle;
+      B.flip = a.flip;
+      const mz = DP.bazooka.muzzle(g.boss, a.angle, a.flip);
+      // 狙った位置が角度の範囲の外(真上など)でも、基本の飛行方向の線に下ろした距離で位相をそろえる
+      const dx = target.x - mz.x;
+      const dy = target.y - mz.y;
+      const along = Math.max(0, dx * Math.cos(a.angle * Math.PI / 180) + dy * Math.sin(a.angle * Math.PI / 180));
+      const m = DP.bazooka.create(mz, a.angle, along, r);
+      B.missiles.push(m);
+      B.flash = DP.config.missile.flashFrames;
+      B.fired++;
+      return m;
+    },
+    update(ctx) {
+      const g = ctx.g;
+      const lv = g.level;
+      if (!lv.stage.bazooka) return;
+      const c = DP.config.missile;
+      if (!lv.bazooka) this.init(lv);
+      const B = lv.bazooka;
+      const r = DP.bazooka.rules(lv.stage, g.round);
+
+      // ミサイル・煙・爆発を進める
+      for (const m of B.missiles) {
+        const sm = DP.bazooka.update(m);
+        if (sm) B.smoke.push(sm);
+      }
+      B.missiles = B.missiles.filter((m) => !m.dead);
+      B.smoke = B.smoke.filter((sm) => DP.bazooka.updateSmoke(sm));
+      B.blasts = B.blasts.filter((b) => DP.bazooka.updateBlast(b));
+      if (B.flash > 0) B.flash--;
+      if (B.shake > 0) B.shake--;
+
+      // ゴリラの構え → 狙う → 発射
+      B.t++;
+      const ok = this.canFire(g);
+      const track = () => {
+        const a = DP.bazooka.aim(g.boss, DP.bazooka.targetOf(g.player));
+        B.angle = a.angle;
+        B.flip = a.flip;
+      };
+      if (B.phase === 'wait') {
+        if (B.cool > 0) B.cool--;
+        if (B.cool <= 0 && ok && B.missiles.length < r.maxAlive) {
+          B.phase = 'raise';
+          B.t = 0;
+          track();
+          ctx.audio.play('bazookaReady');
+        }
+      } else if (B.phase === 'raise' || B.phase === 'aim') {
+        if (!ok) {
+          // 撃ってはいけない場面になった: 構えを解き、少し待ってから構え直す
+          B.phase = 'wait';
+          B.t = 0;
+          B.cool = c.raiseFrames;
+        } else {
+          track();
+          if (B.phase === 'raise' && B.t >= c.raiseFrames) {
+            B.phase = 'aim';
+            B.t = 0;
+            B.aimFrames = r.aim; // 描画: 発射が近づいたら砲口の点滅を速くする
+          } else if (B.phase === 'aim' && B.t >= r.aim) {
+            const m = this.fire(g, B, r);
+            m.firedAt = g.frame;
+            B.phase = 'recoil';
+            B.t = 0;
+            // 次の発射まで interval(構えと狙う時間を含む)。待つのは残りの分
+            B.cool = Math.max(c.recoilFrames, r.interval - c.raiseFrames - r.aim) - c.recoilFrames;
+            ctx.audio.play('bazookaFire');
+          }
+        }
+      } else if (B.phase === 'recoil') {
+        if (B.t >= c.recoilFrames) {
+          B.phase = 'wait';
+          B.t = 0;
+        }
+      }
+
+      const p = g.player;
+      // 釘バットで壊す(体に当たるより先に判定する)。壊したらすぐ外すので、1 本から 1 回だけ 1,000 点
+      const bb = DP.player.batHitbox(p);
+      if (bb) {
+        for (const m of B.missiles) {
+          if (m.dead || !DP.geometry.overlaps(bb, DP.bazooka.hitbox(m))) continue;
+          m.dead = true;
+          B.blasts.push(DP.bazooka.createBlast(m.x, m.y, m.heading));
+          B.shake = c.shakeFrames;
+          ctx.addScore(DP.config.score.missile, m.x, m.y - 24);
+          ctx.audio.play('missileBoom');
+        }
+        B.missiles = B.missiles.filter((m) => !m.dead);
+      }
+      if (p.state === 'dead') return;
+      // ミサイル本体に触れたら炎上のミス(煙には当たり判定なし)
+      const pb = DP.player.hitbox(p);
+      if (B.missiles.some((m) => DP.geometry.overlaps(pb, DP.bazooka.hitbox(m)))) {
+        if (ctx.killPlayer('burn')) return; // DEV の無敵中はミスにならないので、跳び越えの得点の判定へ進む
+      }
+      // ジャンプ中に真下を通ったら 100 点(1 本につき 1 回。ctx.checkJumpOver が印 jumpedOver を付ける)
+      for (const m of B.missiles) ctx.checkJumpOver(m);
     },
   },
 

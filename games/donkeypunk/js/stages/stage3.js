@@ -34,7 +34,7 @@ DP.stages.push({
   id: 'squat',
   name: 'STAGE 3',
   // この面の仕掛け: 循環リフト A と往復リフト B。ゴリラは立っているだけ(ビールも投げない)。敵はまだいない
-  mechanics: ['lifts', 'wreckingBall', 'birds'],
+  mechanics: ['lifts', 'wreckingBall', 'birds', 'prizes'],
   // 見た目: 灰色のコンクリートの鉄骨、背景は解体途中の壁と夜空(renderer.js)
   girderColors: { body: '#7c8088', top: '#c8ccd2', bottom: '#3a3d44' },
   background: 'demolition',
@@ -152,8 +152,44 @@ DP.stages.push({
       { y: 430, dir: 1, color: 'yellow', firstSpawn: 300 }, // ③ 黄トサカ / 左 → 右
       { y: 540, dir: -1, color: 'green', firstSpawn: 180 }, // ④ 緑トサカ / 右 → 左
     ],
+    // 周回ごとの値(1 行目が R1。R11 以降は最後の行 = R10 で上限)。試作値。プレイして調整する
+    //   interval: 同じラインで、前の鳥が出てから次の鳥が出るまで(ステップ。最初の 1 羽は上の firstSpawn のまま)
+    //   perLine: 1 本のラインに同時に飛べる数 / maxTotal: 画面全体で同時に飛べる数
+    //   fire: 火炎攻撃(null = なし)。length: 長さ px(はじめは鳥の横幅 24px の 1 体分 / 2 体分。プレイ確認で少し短くして 20 / 40)/ windup: 予備動作(くちばしを開く)/
+    //         burn: 噴く時間 / cycle: 噴き始めから次の噴き始めまで(すべてステップ)
+    // R6〜R10 の間隔は、プレイ確認で R10 が難しすぎたので R10 の頻度を 2.0 倍 → 1.6 倍に下げ、R6〜R9 を R5(1.4 倍)との間に並べ直した
+    // (前は R6 320 / R7 300 / R8 282 / R9 267 / R10 240)。
+    // R1 は以前と同じ(8 秒ごと・1 ラインに 1 羽。前の鳥が画面にいれば消えるまで待つ)。画面を横切るのに約 336 ステップかかるので、
+    // 1 ラインに 2 羽になるのは間隔が 336 より短い R6 から
+    rounds: [
+      { interval: 480, perLine: 1, maxTotal: 4, fire: null }, // R1(以前と同じ)
+      { interval: 436, perLine: 1, maxTotal: 4, fire: null }, // R2
+      { interval: 400, perLine: 1, maxTotal: 4, fire: null }, // R3
+      { interval: 370, perLine: 1, maxTotal: 4, fire: null }, // R4
+      { interval: 343, perLine: 1, maxTotal: 4, fire: { length: 20, windup: 30, burn: 36, cycle: 150 } }, // R5
+      { interval: 331, perLine: 2, maxTotal: 5, fire: { length: 20, windup: 30, burn: 36, cycle: 150 } }, // R6
+      { interval: 320, perLine: 2, maxTotal: 5, fire: { length: 20, windup: 30, burn: 36, cycle: 150 } }, // R7
+      { interval: 310, perLine: 2, maxTotal: 5, fire: { length: 20, windup: 30, burn: 36, cycle: 150 } }, // R8
+      { interval: 305, perLine: 2, maxTotal: 6, fire: { length: 20, windup: 30, burn: 36, cycle: 150 } }, // R9
+      { interval: 300, perLine: 2, maxTotal: 6, fire: { length: 40, windup: 24, burn: 30, cycle: 130 } }, // R10〜(上限)。噴く時間はプレイ確認で 42 → 30 に短くした
+    ],
   },
-  items: [{ type: 'bat', girder: 'r1', x: 446 }],
+  // 釘バットは置かない(3 面では使う場面がほとんどないので撤去した。以前は r1 の x=446 に 1 本)
+  items: [],
+  // ボーナスアイテム(仕掛け 'prizes'。4 面と同じ処理)。通常のクリアルートではほとんど通らない足場に置く。
+  // 歩いて触れると取れる。取ったものはミスしても復活せず、次の周回の 3 面では置き直す。クリアの条件には入らない。
+  // 低い得点は歩くだけで取れる場所、高い得点は跳んで寄り道する場所(合計 3,600 点):
+  //   カセットテープ(300): 地面の右端(スタートから右へ歩く)/ 右の小さな足場 r1(下ルートの P1 から右へ歩く)
+  //   革ジャン(500): 右の中段 r2(2 階で止まっているリフト B から右へ跳ぶ)/ 右上の棚 K1(屋上の高さで止まっているリフト B から右へ跳ぶ)
+  //   エレキギター(1,000): 右の飛び石のいちばん上 R2(r2 → R1 → R2)/ 最上段の右端 K3(K1 → K2 → K3)
+  prizes: [
+    { id: 'tapeF0', type: 'tape', girder: 'f0', x: 318 },
+    { id: 'tapeR1', type: 'tape', girder: 'r1', x: 456 },
+    { id: 'jacketR2', type: 'jacket', girder: 'r2', x: 468 },
+    { id: 'jacketK1', type: 'jacket', girder: 'K1', x: 470 },
+    { id: 'guitarR2', type: 'guitar', girder: 'R2', x: 468 },
+    { id: 'guitarK3', type: 'guitar', girder: 'K3', x: 468 },
+  ],
   playerStart: { x: 30, girder: 'f0', facing: 1 },
   // ゴリラ警官(屋上の左)。立っているだけ
   boss: { x: 56, girder: 'b' },

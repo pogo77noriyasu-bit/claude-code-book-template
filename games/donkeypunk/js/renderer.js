@@ -371,8 +371,8 @@ DP.createRenderer = function (canvas) {
     }
   }
 
-  // 4 面のボーナスアイテム(取っていないものだけ)。当たり判定は動かさず、見た目だけ上下に 2px ゆっくり揺らし、ときどきキラッと光る
-  const PRIZE_SPRITE = { beer: 'beerUp', hbook: 'hbook', cash: 'cash' };
+  // ボーナスアイテム(3 面・4 面。取っていないものだけ)。当たり判定は動かさず、見た目だけ上下に 2px ゆっくり揺らし、ときどきキラッと光る
+  const PRIZE_SPRITE = { beer: 'beerUp', hbook: 'hbook', cash: 'cash', tape: 'tape', jacket: 'jacket', guitar: 'guitar' };
   function drawPrizes(level, frame) {
     level.prizes.forEach((p, i) => {
       if (p.taken || p.gone) return;
@@ -1070,6 +1070,203 @@ DP.createRenderer = function (canvas) {
     }
   }
 
+  // 2 面: バズーカ砲を構えたゴリラ警官(lv.bazooka の段階が raise / aim / recoil のとき)。
+  // 体は角度に合わせた 3 ポーズ(水平 H / 斜め D / 急角度 S)、筒は肩を中心に角度どおりに回して描く。
+  // raise: 筒を下げた所から狙う角度へ持ち上げる / aim: 砲口が赤く点滅(予告)/ recoil: のけぞり + 砲口の閃光
+  function drawBazookaBoss(b, B) {
+    const c = C.missile;
+    const flip = B.flip;
+    let angle = B.angle;
+    let lift = 0;
+    if (B.phase === 'raise') {
+      const k = Math.min(1, B.t / c.raiseFrames);
+      angle = 90 + (B.angle - 90) * k; // 真下(担ぐ前)から狙う角度へ
+      lift = Math.round((1 - k) * 10);
+    }
+    const kick = B.phase === 'recoil' && B.t < 6 ? (flip ? -2 : 2) : 0; // 反動で後ろへ
+    const ea = flip ? 180 - angle : angle;
+    const pose = ea < 30 ? 'bossAimH' : ea < 60 ? 'bossAimD' : 'bossAimS';
+    spr.draw(ctx, pose, b.x - kick, b.y + 1, { flip });
+    drawBossCrate(b);
+    const pv = DP.bazooka.pivot(b, flip);
+    ctx.save();
+    ctx.translate(Math.round(pv.x - kick), Math.round(pv.y + lift));
+    ctx.rotate((angle * Math.PI) / 180);
+    if (flip) ctx.scale(1, -1); // 左向きでも筒のつやが上に来るように
+    // 筒(オリーブ色)・つや・前後の太い輪・握り
+    ctx.fillStyle = '#4f5a2a';
+    ctx.fillRect(-c.tubeBack, -3, c.tubeBack + c.tubeFront, 6);
+    ctx.fillStyle = '#7d8a44';
+    ctx.fillRect(-c.tubeBack, -3, c.tubeBack + c.tubeFront, 2);
+    ctx.fillStyle = '#22260f';
+    ctx.fillRect(-c.tubeBack - 1, -4, 3, 8);
+    ctx.fillRect(c.tubeFront - 3, -4, 4, 8);
+    ctx.fillRect(2, 3, 3, 4);
+    ctx.fillStyle = '#ffd23c'; // 照準器
+    ctx.fillRect(6, -5, 2, 2);
+    ctx.restore();
+    // 砲口
+    const mz = { x: pv.x - kick + Math.cos((angle * Math.PI) / 180) * c.tubeFront, y: pv.y + lift + Math.sin((angle * Math.PI) / 180) * c.tubeFront };
+    if (B.phase === 'aim') {
+      // 予告: 砲口が赤く点滅。発射が近づくほど速く
+      const rate = B.t > 0 && B.t >= B.aimFrames - 16 ? 3 : 6;
+      if (Math.floor(B.t / rate) % 2 === 0) {
+        ctx.fillStyle = '#ff2a2a';
+        ctx.fillRect(Math.round(mz.x) - 2, Math.round(mz.y) - 2, 4, 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(mz.x) - 1, Math.round(mz.y) - 1, 2, 2);
+      }
+    }
+    if (B.flash > 0) {
+      // 砲口の閃光: 白い芯と、黄・オレンジの光が四方と前へ伸びる
+      const k = B.flash / c.flashFrames;
+      const r = 4 + Math.round(8 * k);
+      const ux = Math.cos((angle * Math.PI) / 180);
+      const uy = Math.sin((angle * Math.PI) / 180);
+      ctx.fillStyle = '#ff8a1e';
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.fillRect(Math.round(mz.x + Math.cos(a) * r) - 2, Math.round(mz.y + Math.sin(a) * r) - 2, 4, 4);
+      }
+      ctx.fillStyle = '#ffd23c';
+      for (let d = 0; d < r * 1.6; d += 3) ctx.fillRect(Math.round(mz.x + ux * d) - 3, Math.round(mz.y + uy * d) - 3, 6, 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(mz.x) - 4, Math.round(mz.y) - 4, 8, 8);
+    }
+  }
+
+  // 3 面: パンクニワトリの火炎(R5 以降)。予備動作の間は口元に火の粉がちらつき、噴いている間は
+  // くちばしから進行方向へ fr.length px の炎(外側の赤・オレンジ・黄・口元の白い芯)。先へ行くほど細く、毎ステップ揺らめく。
+  // 炎の高さは床から約 6〜18px(当たり判定 8〜16px より少しだけ大きい)
+  function drawBirdFire(b, fr, frame) {
+    const c = C.bird;
+    const dir = b.dir;
+    const x0 = b.x + dir * c.fireFrom; // くちばしの先
+    const cy = b.y + Math.round(b.hopDy || 0) - 12; // 炎の中心の高さ(床から 12px。跳ね上がっている間はその高さ)
+    if (b.fire === 'windup') {
+      // 予備動作: 口元で小さな火の粉が点滅し、終わりが近づくほど増える
+      const n = b.fireT > fr.windup / 2 ? 3 : 1;
+      for (let i = 0; i < n; i++) {
+        if ((frame + i * 3 + b.id) % 6 >= 3) continue;
+        ctx.fillStyle = i % 2 ? '#ff8a1e' : '#ffd23c';
+        ctx.fillRect(Math.round(x0 + dir * (2 + i * 3)) - 1, Math.round(cy - 3 + ((i * 5 + frame) % 6)), 2, 2);
+      }
+      return;
+    }
+    if (b.fire !== 'burn') return;
+    const L = fr.length;
+    for (let d = 0; d < L; d += 2) {
+      const k = d / L; // 0(口元)〜 1(先)
+      // 揺らめき: 2px の列ごとに、ステップと位置で高さを ±2px 変える
+      const flick = ((frame * 7 + d * 13 + b.id * 5) % 5) - 2;
+      const h = Math.max(2, Math.round(12 * (1 - 0.55 * k) + flick));
+      const x = dir > 0 ? Math.round(x0 + d) : Math.round(x0 - d - 2);
+      ctx.fillStyle = '#e02a1a';
+      ctx.fillRect(x, Math.round(cy - h / 2), 2, h);
+      const h2 = Math.round(h * 0.65);
+      ctx.fillStyle = '#ff8a1e';
+      ctx.fillRect(x, Math.round(cy - h2 / 2), 2, h2);
+      const h3 = Math.round(h * 0.32);
+      if (h3 > 0) {
+        ctx.fillStyle = k < 0.2 ? '#ffffff' : '#ffd23c';
+        ctx.fillRect(x, Math.round(cy - h3 / 2), 2, h3);
+      }
+    }
+    // 先端から散る火の粉
+    if (frame % 4 < 2) {
+      ctx.fillStyle = '#ffd23c';
+      ctx.fillRect(Math.round(x0 + dir * (L + 1)), Math.round(cy - 4 + (frame % 8)), 2, 2);
+    }
+  }
+
+  // 2 面: 蛇行ミサイルの煙(見た目だけ)。灰色の粒がふくらみながら薄れる
+  function drawMissileSmoke(B) {
+    const life = C.missile.smokeLife;
+    for (const sm of B.smoke) {
+      const k = sm.t / life;
+      const size = Math.round(3 + k * 6);
+      ctx.globalAlpha = 0.6 * (1 - k);
+      ctx.fillStyle = k < 0.3 ? '#d8d8e0' : '#8a8a98';
+      ctx.fillRect(Math.round(sm.x - size / 2), Math.round(sm.y - size / 2), size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // 2 面: 蛇行ミサイル本体(進む向きに回す)と、尾から噴き出す炎
+  function drawMissiles(B, frame) {
+    for (const m of B.missiles) {
+      ctx.save();
+      ctx.translate(Math.round(m.x), Math.round(m.y));
+      ctx.rotate(m.heading);
+      const flick = (frame + m.id) % 4 < 2;
+      ctx.fillStyle = '#ff8a1e';
+      ctx.fillRect(-14, -2, flick ? 5 : 3, 4);
+      ctx.fillStyle = '#ffd23c';
+      ctx.fillRect(-12, -1, 3, 2);
+      spr.draw(ctx, 'missile', 0, 5);
+      ctx.restore();
+    }
+  }
+
+  // 2 面: 釘バットでミサイルを壊した大爆発(見た目だけ)。通常の敵の破壊より大きく長い:
+  // 赤・オレンジ・黄・白の火の玉がふくらんでしぼみ、まわりで小さな爆発が続き、金属の破片が重力で飛び散り、黒煙が上がる
+  function drawMissileBlasts(B) {
+    const total = C.missile.blastFrames;
+    for (const b of B.blasts) {
+      const t = b.t;
+      // 黒煙(火の玉の奥)
+      if (t > 4) {
+        for (const p of b.puffs) {
+          const k = (t - 4) / (total - 4);
+          ctx.globalAlpha = 0.7 * (1 - k);
+          ctx.fillStyle = '#2a2a30';
+          const r = 5 + (t - 4) * 0.35;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      // 火の玉
+      if (t < 28) {
+        const r = t < 8 ? 6 + t * 3 : Math.max(0, 30 - (t - 8) * 1.5);
+        const rings = [[1, '#ff3a1e'], [0.75, '#ff8a1e'], [0.48, '#ffd23c']];
+        if (t < 6) rings.push([0.25, '#ffffff']);
+        for (const [f, col] of rings) {
+          ctx.fillStyle = col;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, r * f, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // まわりの小さな爆発(時間をずらして 3 つ)
+        for (let i = 0; i < 3; i++) {
+          const tt = t - 4 - i * 4;
+          if (tt < 0 || tt > 10) continue;
+          const a = i * 2.1 + 0.6;
+          const sx = b.x + Math.cos(a) * 20;
+          const sy = b.y + Math.sin(a) * 14;
+          const sr = tt < 4 ? 3 + tt * 2 : Math.max(0, 11 - (tt - 4) * 1.8);
+          ctx.fillStyle = '#ff8a1e';
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffd23c';
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      // 金属の破片(銀・濃い灰・赤い弾頭のかけら)がくるくる回りながら飛び散る
+      const cols = ['#cfd6e0', '#3a3a44', '#ff2a2a'];
+      for (const d of b.debris) {
+        ctx.fillStyle = cols[d.kind];
+        const horiz = Math.floor(d.spin) % 2 === 0;
+        ctx.fillRect(Math.round(d.x) - (horiz ? 3 : 1), Math.round(d.y) - (horiz ? 1 : 3), horiz ? 6 : 3, horiz ? 3 : 6);
+      }
+      if (t < 16) text('KA-BOOM!', b.x, b.y - 40 - t, { size: 10, align: 'center', color: '#ffd23c', shadow: '#a81414' });
+    }
+  }
+
   function drawBoss(b) {
     const up = b.state === 'grab' || (b.state === 'idle' && Math.floor(b.anim / 20) % 6 === 0);
     spr.draw(ctx, up ? 'bossUp' : 'boss', b.x, b.y + 1);
@@ -1094,7 +1291,11 @@ DP.createRenderer = function (canvas) {
       ctx.fillStyle = '#cfd6e0';
       for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(b.x + 14 + i * 6), Math.round(b.y - 52 + i * 7), 6, 2);
     }
-    // 予備のビールケース(飾り)
+    drawBossCrate(b);
+  }
+
+  // ゴリラの横の予備のビールケース(飾り。バズーカを構えている間も描く)
+  function drawBossCrate(b) {
     ctx.fillStyle = '#c87a1a';
     ctx.fillRect(b.x - 50, b.y - 16, 22, 16);
     ctx.fillStyle = '#7a4a10';
@@ -1325,9 +1526,13 @@ DP.createRenderer = function (canvas) {
       if (stage.amp) drawAmpStand(stage.amp, stage.girderColors); // 格子の台は鉄骨・ハシゴより奥
       // 4 面のクリア演出中(collapse)。地面に落ちた衝撃で画面全体を横に揺らす
       const col = g.state === 'collapse' ? g.collapse : null;
-      if (col && col.shake) {
+      // 2 面: 釘バットでミサイルを壊したときも小さく揺らす(左右に 3px ずつ)
+      const bz = g.level.bazooka;
+      const bzShake = bz && bz.shake > 0 ? (bz.shake % 4 < 2 ? 3 : -3) : 0;
+      const shift = (col && col.shake) || bzShake;
+      if (shift) {
         ctx.save();
-        ctx.translate(col.shake, 0);
+        ctx.translate(shift, 0);
       }
       drawEscapeLadders(g.level);
       drawLiftShafts(g.level, g.frame);
@@ -1346,7 +1551,11 @@ DP.createRenderer = function (canvas) {
       } else {
         // 逃走演出のあと(クリア表示中)は 2 人とも画面の外へ消えている
         if (!g.heroine.gone) drawHeroine(g.heroine, g.frame, g.state);
-        if (!g.boss.gone) drawBoss(g.boss);
+        if (!g.boss.gone) {
+          const B = g.level.bazooka;
+          if (B && (B.phase === 'raise' || B.phase === 'aim' || B.phase === 'recoil')) drawBazookaBoss(g.boss, B);
+          else drawBoss(g.boss);
+        }
       }
       if (stage.pins && !col) drawPins(g.level.pins || stage.pins, g.level);
       if (g.level.prizes && !col) drawPrizes(g.level, g.frame);
@@ -1357,14 +1566,28 @@ DP.createRenderer = function (canvas) {
         else drawSkull(e);
       }
       // 3 面のパンクニワトリ(羽ばたきの 2 枚を入れ替える。左へ飛ぶときは左右反転)
-      for (const b of (g.level.birds || [])) spr.draw(ctx, `bird_${b.color}_${DP.birds.wing(b)}`, b.x, b.y, { flip: b.dir < 0 });
+      // R5 以降は火炎: 予備動作と噴いている間はくちばしを開いた姿、噴いている間は口から進行方向へ炎
+      const birdFire = g.level.birds ? (DP.birds.rules(stage.birds, g.round) || {}).fire : null;
+      for (const b of (g.level.birds || [])) {
+        const open = DP.birds.mouthOpen(b) ? '_open' : '';
+        // リフトの縦穴を越えるときは跳ね上がった高さに描く(当たり判定と同じ hopDy)
+        const by = b.y + Math.round(b.hopDy || 0);
+        spr.draw(ctx, `bird_${b.color}_${DP.birds.wing(b)}${open}`, b.x, by, { flip: b.dir < 0 });
+        if (birdFire) drawBirdFire(b, birdFire, g.frame);
+      }
+      // 2 面の蛇行ミサイル(煙が奥、本体が手前)
+      if (g.level.bazooka) {
+        drawMissileSmoke(g.level.bazooka);
+        drawMissiles(g.level.bazooka, g.frame);
+      }
       if (!col) {
         drawPlayer(g.player, g.frame, g.state, g.timer, g.deathReason);
         drawHeldBat(g.player, g.frame);
       }
       drawEffects(g.effects);
+      if (g.level.bazooka) drawMissileBlasts(g.level.bazooka);
       drawPopups(g);
-      if (col && col.shake) ctx.restore();
+      if (shift) ctx.restore();
     }
     drawHud(g);
     // 開発用ショートカットが有効なときだけ、画面の下に目印を出す

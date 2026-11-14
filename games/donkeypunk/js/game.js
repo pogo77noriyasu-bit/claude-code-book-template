@@ -28,6 +28,7 @@ DP.createGame = function () {
     skullsEnabled: true, // テスト用にファイヤースカルの出現を止められるようにしている
     copsEnabled: true, // テスト用に怒ったポリスマン(4 面)の出現を止められるようにしている
     birdsEnabled: true, // テスト用に 3 面のパンクニワトリの出現を止められるようにしている
+    bazookaEnabled: true, // テスト用に 2 面のゴリラ警官のバズーカ(蛇行ミサイル)を止められるようにしている
     escape: null, // クリア後の逃走演出(DP.escape)。演出中だけ使う
     collapse: null, // 4 面のクリア演出(DP.collapse。鉄骨崩壊 → 拳銃乱射 → ゴリラ落下 → ガール救出)。演出中だけ使う
     clearBonus: 0, // 4 面のクリアで足した得点(ROUND CLEAR の表示用)
@@ -414,6 +415,7 @@ DP.createGame = function () {
     g.hazards = []; // 残っているビールは片付ける
     g.enemies = []; // 敵も片付ける
     if (g.level.birds) g.level.birds = []; // 3 面のパンクニワトリも
+    DP.mechanics.bazooka.clear(g.level); // 2 面の蛇行ミサイル・煙・爆発も(ゴリラは構えを解く)
     p.bat = 0; // 釘バットは手放す(BGM は updateMusic の条件から外れて止まる)
     p.batTime = 0;
     p.walkTime = 0;

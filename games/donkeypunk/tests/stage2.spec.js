@@ -784,6 +784,7 @@ test('Z2. 最短クリア時間は 18〜22 秒(敵なし・最短の操作で測
     const dp = window.__dp;
     const key = (k, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key: k }));
     dp.setSkullsEnabled(false);
+    dp.setBazookaEnabled(false); // 敵なしで測る(ゴリラのバズーカも止める)
     dp.startStage(1);
     let s = dp.step(1);
     while (s.state !== 'playing') s = dp.step(1);

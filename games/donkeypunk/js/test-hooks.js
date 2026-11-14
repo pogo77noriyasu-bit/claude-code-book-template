@@ -69,7 +69,22 @@ DP.installTestHooks = function (game, loop, renderer) {
       // 3 面のパンクニワトリ(wing: 羽の向き。box: 当たり判定)
       birds: ((g.level && g.level.birds) || []).map((b) => ({
         id: b.id, line: b.line, color: b.color, dir: b.dir, x: b.x, y: b.y, wing: DP.birds.wing(b), box: DP.birds.hitbox(b),
+        // 火炎(R5 以降): 段階・経過・噴いている間の当たり判定(それ以外は null)・くちばしを開いているか
+        fire: b.fire, fireT: b.fireT, mouthOpen: DP.birds.mouthOpen(b),
+        // リフトの縦穴を越える跳ね上がり(hopping: 跳ねているか / hopDy: 高さ。上が負)
+        hopping: !!b.hop, hopDy: b.hopDy || 0,
+        fireBox: DP.birds.fireHitbox(b, (DP.birds.rules(g.level.stage.birds, g.round) || {}).fire),
       })),
+      // 2 面のゴリラ警官のバズーカ(phase: 'wait' | 'raise' | 'aim' | 'recoil'。ほかの面では null)と蛇行ミサイル
+      bazooka: g.level && g.level.bazooka ? {
+        phase: g.level.bazooka.phase, t: g.level.bazooka.t, cool: g.level.bazooka.cool, angle: g.level.bazooka.angle,
+        flip: g.level.bazooka.flip, flash: g.level.bazooka.flash, shake: g.level.bazooka.shake, fired: g.level.bazooka.fired,
+        smoke: g.level.bazooka.smoke.length, blasts: g.level.bazooka.blasts.length,
+        missiles: g.level.bazooka.missiles.map((m) => ({
+          id: m.id, x: m.x, y: m.y, x0: m.x0, y0: m.y0, s: m.s, angle: m.angle, heading: m.heading, speed: m.speed, amp: m.amp,
+          wave: m.wave, aimDist: m.aimDist, jumpedOver: !!m.jumpedOver, box: DP.bazooka.hitbox(m),
+        })),
+      } : null,
       // 4 面のクリア演出(DP.collapse)の段階と位置
       collapse: g.collapse && {
         phase: g.collapse.phase, t: g.collapse.t, total: g.collapse.total, bx: g.collapse.bx, by: g.collapse.by,
@@ -205,6 +220,28 @@ DP.installTestHooks = function (game, loop, renderer) {
       g.enemies.push(e);
       return e.id;
     },
+    // 2 面のゴリラ警官のバズーカ: 構えて撃つのを止める / 戻す(飛んでいるミサイルはそのまま飛ぶ)
+    setBazookaEnabled: (on) => { g.bazookaEnabled = !!on; },
+    // 周回 round の値(ステージデータの bazooka.rounds。R11 以降は R10)
+    bazookaRules: (round) => DP.bazooka.rules(DP.stages.find((st) => st.bazooka), round),
+    // ミサイルを直接 1 本撃つ。opts: { angle(度), aimDist, round, x, y(撃ち出す位置。省くとゴリラの砲口) }
+    fireMissile: (opts) => {
+      const o = opts || {};
+      const lv = g.level;
+      if (!lv.bazooka) DP.mechanics.bazooka.init(lv);
+      const r = DP.bazooka.rules(lv.stage, o.round || g.round);
+      const angle = o.angle !== undefined ? o.angle : 0;
+      const from = o.x !== undefined ? { x: o.x, y: o.y } : DP.bazooka.muzzle(g.boss, angle, angle > 90);
+      const m = DP.bazooka.create(from, angle, o.aimDist !== undefined ? o.aimDist : 100, r);
+      lv.bazooka.missiles.push(m);
+      return m.id;
+    },
+    clearMissiles: () => { if (g.level.bazooka) g.level.bazooka.missiles = []; },
+    // ゴリラの肩から見た、今の主人公への角度({ angle, flip })と砲口の位置
+    bazookaAim: () => {
+      const a = DP.bazooka.aim(g.boss, DP.bazooka.targetOf(g.player));
+      return Object.assign(a, { muzzle: DP.bazooka.muzzle(g.boss, a.angle, a.flip), target: DP.bazooka.targetOf(g.player) });
+    },
     // 3 面のパンクニワトリの自動の出現を止める / 戻す(出ている鳥はそのまま飛ぶ)
     setBirdsEnabled: (on) => { g.birdsEnabled = !!on; },
     // ライン index(0 = いちばん上)に鳥を 1 羽出す。x を省くと飛んでくる側の画面の外から
@@ -216,6 +253,15 @@ DP.installTestHooks = function (game, loop, renderer) {
       return b.id;
     },
     clearBirds: () => { if (g.level.birds) g.level.birds = []; },
+    // 3 面のパンクニワトリの周回 round の値(ステージデータの birds.rounds。R11 以降は R10)
+    birdRules: (round) => DP.birds.rules(DP.stages.find((st) => st.birds).birds, round),
+    // 鳥 id の火炎の段階を直接決める(phase: 'wait' | 'rest' | 'windup' | 'burn'、t: 経過ステップ、rest: 休みの長さ)
+    setBirdFire: (id, phase, t, rest) => {
+      const b = (g.level.birds || []).find((x) => x.id === id);
+      if (!b) return false;
+      b.fire = phase; b.fireT = t || 0; if (rest !== undefined) b.fireRest = rest;
+      return true;
+    },
     spawnSkull: (girderId, x, opts) => { const e = DP.skulls.create(g.level, girderId, x, opts || {}); g.enemies.push(e); return e.id; },
     clearEnemies: () => { g.enemies = []; },
     // 爆音アンプからスカルを出す(side: 'left' | 'right'。着地点の安全確認はしない)/ アンプの炎の燃え上がりの残り

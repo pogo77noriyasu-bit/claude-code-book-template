@@ -604,10 +604,88 @@ DP.sprites = (function () {
     '....We......',
   ];
   const BIRD_COMB = { blue: 'U', red: 'R', yellow: 'Y', green: 'V' };
+  // くちばしを開いた姿(R5 以降の火炎の予備動作と噴いている間): 上のくちばし(O)を 1 段上げ、口の中(赤 R)を見せる
+  const openBeak = (rows) => rows.map((r, i) => (i === 3 ? r.slice(0, 11) + 'O' : i === 4 ? r.slice(0, 11) + 'R' : r));
   for (const [color, ch] of Object.entries(BIRD_COMB)) {
     DATA['bird_' + color + '_up'] = def(BIRD_UP.map((r) => r.replace(/X/g, ch)));
     DATA['bird_' + color + '_down'] = def(BIRD_DOWN.map((r) => r.replace(/X/g, ch)));
+    DATA['bird_' + color + '_up_open'] = def(openBeak(BIRD_UP).map((r) => r.replace(/X/g, ch)));
+    DATA['bird_' + color + '_down_open'] = def(openBeak(BIRD_DOWN).map((r) => r.replace(/X/g, ch)));
   }
+
+  // 2 面: バズーカ砲を構えたゴリラ警官(右向き。左向きは左右反転)。頭と脚は通常の boss と同じで、腕だけが違う。
+  // 前へ出した右腕(袖 N + 手 F)と、胸の前を横切る左腕で筒をつかむ。筒そのものは renderer.js が角度に合わせて回して描く。
+  // H = 水平(肩の高さでつかむ)/ D = 斜め下 / S = 急角度(低い位置でつかむ)。hr: 手の行
+  const BOSS_TORSO = [
+    '....NNNNFFFFFFFFNNNN',
+    '...NNNNNnnnYnnnNNNNN',
+    '...NNNNNnnnnnnnNNNNN',
+    '...NNNNNnnnYnnnNNNNN',
+    '...NNNNNnnnnnnnNNNNN',
+    '....NNNNKKKYKKKNNNN',
+    '....NNNNNNNNNNNNNNN',
+  ];
+  function bossAim(hr) {
+    const torso = BOSS_TORSO.map((r, i) => {
+      const row = 12 + i;
+      if (row === hr) return r.padEnd(19, '.') + 'NNFF'; // 前へ出した右腕と手
+      if (row === hr + 1) return r.slice(0, 8) + 'NNNNNNNNNNNFF'; // 胸の前を横切る左腕と手
+      return r;
+    });
+    const b = DATA.boss.rows;
+    return def(b.slice(0, 12).concat(torso, b.slice(19)));
+  }
+  DATA.bossAimH = bossAim(13);
+  DATA.bossAimD = bossAim(14);
+  DATA.bossAimS = bossAim(16);
+
+  // 2 面: 蛇行ミサイル(右向き。描画で進む向きに回す)。10x5 ドット = 20x10px
+  // 黒い尾翼(K)、銀の胴体(G)と白いつや(W)、赤い弾頭(R)
+  DATA.missile = def([
+    '.K........',
+    'KGGGGGGRR.',
+    'KGWWWGGRRR',
+    'KGGGGGGRR.',
+    '.K........',
+  ]);
+
+  // 3 面のボーナスアイテム(仕掛け 'prizes'。renderer.js が 2 倍で描く。どれも当たり判定 20×24px 以内)
+  // カセットテープ(300 点): 黒い本体に白いラベル・赤い線・2 つのリール(銀の軸)。12x7
+  DATA.tape = def([
+    'KKKKKKKKKKKK',
+    'KWWWWWWWWWWK',
+    'KWRRRRRRRRWK',
+    'KWKGKWWKGKWK',
+    'KWWWWWWWWWWK',
+    'KkkkKKKKkkkK',
+    'KKKKKKKKKKKK',
+  ]);
+  // 革ジャン(500 点): 黒い縁取りの濃いグレーの革(暗い背景でも形が見えるように)に、銀の斜めジッパーと肩・胸の鋲、
+  // 胸に赤いワッペン、立てた襟。袖と胴の間を少しあけて形を見せる。12x9
+  DATA.jacket = def([
+    '..KK....KK..',
+    '.KkkK..KkkK.',
+    'KkGkkKKkkGkK',
+    'KkkkGkkkkRkK',
+    'KkkkkGkkkkkK',
+    'KkGkkkGkkGkK',
+    'Kk.KkkkGkK.K',
+    'Kk.KkkkkkK.K',
+    '...KKKKKKK..',
+  ]);
+  // エレキギター(1,000 点): 赤いボディに白いピックガード、黒いネックと銀の弦(縦向き。ヘッドが上)。8x10
+  DATA.guitar = def([
+    '...KK...',
+    '...KK...',
+    '...KG...',
+    '...KG...',
+    '...KG...',
+    '.RRKGRR.',
+    'RRRWGRRR',
+    'RRWWGWRR',
+    '.RRRGRR.',
+    '..RRRR..',
+  ]);
 
   // 描画を速くするため、スプライトごと(左右反転ごと)にオフスクリーンキャンバスへ焼いておく
   const cache = {};

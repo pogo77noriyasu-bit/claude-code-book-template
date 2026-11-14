@@ -578,15 +578,29 @@ test('L9. リフトの上でもジャンプでき、同じリフトに戻れる�
   expect(s.player.girder[0]).toBe('B');
 });
 
-test('L10. 周回ごとにリフトが速くなり、往復リフトの止まる時間が短くなる。3 周目でもクリアできる', async ({ page }) => {
+test('L10. 周回ごとにリフトが速くなり(R10 まで少しずつ。R11 以降は R10 のまま)、往復リフトの止まる時間が短くなる(R3 以降は 24 のまま)。R1〜R3 は以前と同じ値。3 周目でもクリアできる', async ({ page }) => {
   const cfg = await (async () => { await page.goto('./?test'); return page.evaluate(() => window.DP.config.lift); })();
-  for (const round of [1, 2, 3, 4]) {
+  // R1〜R3 は以前(R3 で頭打ちだったころ)と同じ値
+  expect(cfg.loop.speed.slice(0, 3)).toEqual([0.5, 0.65, 0.8]);
+  expect(cfg.shuttle.speed.slice(0, 3)).toEqual([0.6, 0.8, 1.0]);
+  expect(cfg.shuttle.pause).toEqual([60, 40, 24]);
+  // R10 まで表が 10 段あり、少しずつ速くなる
+  expect(cfg.loop.speed).toHaveLength(10);
+  expect(cfg.shuttle.speed).toHaveLength(10);
+  for (let i = 1; i < 10; i++) {
+    expect(cfg.loop.speed[i]).toBeGreaterThan(cfg.loop.speed[i - 1]);
+    expect(cfg.shuttle.speed[i]).toBeGreaterThan(cfg.shuttle.speed[i - 1]);
+  }
+  for (const round of [1, 2, 3, 4, 5, 9, 10, 11, 20, 100]) {
     await start3(page, round);
     const L = await lifts(page);
-    const i = Math.min(round, 3) - 1;
-    expect(L.A.speed).toBe(cfg.loop.speed[i]);
-    expect(L.B.speed).toBe(cfg.shuttle.speed[i]);
-    expect(L.B.pauseFrames).toBe(cfg.shuttle.pause[i]);
+    const i = Math.min(round, 10) - 1;
+    expect(L.A.speed, `R${round} リフト A`).toBe(cfg.loop.speed[i]);
+    expect(L.B.speed, `R${round} リフト B`).toBe(cfg.shuttle.speed[i]);
+    expect(L.B.pauseFrames).toBe(cfg.shuttle.pause[Math.min(round, 3) - 1]);
+    // R10 より速くならない(上限)
+    expect(L.A.speed).toBeLessThanOrEqual(cfg.loop.speed[9]);
+    expect(L.B.speed).toBeLessThanOrEqual(cfg.shuttle.speed[9]);
   }
   expect(cfg.loop.speed[0]).toBeLessThan(cfg.loop.speed[2]);
   expect(cfg.shuttle.pause[0]).toBeGreaterThan(cfg.shuttle.pause[2]);
@@ -864,6 +878,15 @@ async function playWithKeyboard(page, route, opts = {}) {
   // opts.topDetour: B が最上段に止まったとき右上の棚へ寄り道し(K1 → K2 → K3)、歩いて K1 へ降り、
   // K1 の左端から最上段に止まっている B へ歩いて降りて戻る
   let topDone = !opts.topDetour;
+  // opts.collect: ボーナスアイテムを取りに行く(地面の右端・r1 の右端・r2 の右端・K1 の右端まで歩いてから、いつもの操作に戻る)。
+  // R2・K3 のエレキギターは寄り道(detour / topDetour)で着地すれば取れる
+  const went = {};
+  const goRight = async (pl, id, x) => {
+    if (!opts.collect || went[id]) return false;
+    if (pl.x < x - 1) { await keys('ArrowRight'); return true; }
+    went[id] = true;
+    return false;
+  };
   // opts.birds: パンクニワトリを見て避ける(近づいてきたら立ち止まり、ちょうどよいときにその場で真上に跳ぶ)
   // 鳥が来るまでのステップ数(来ないなら Infinity)。主人公の当たり判定(幅 14・高さ 26)と鳥の当たり判定
   // (幅 12・床から 4〜12px)が上下に重なりそうで、鳥が近づいてくるときだけ数える。止まって待つ前提で鳥の速さ 1.5 で割る
@@ -923,7 +946,7 @@ async function playWithKeyboard(page, route, opts = {}) {
       }
     }
     // 下ルート
-    else if (phase === 'toU1') { if (on('u1')) phase = 'toU2'; else await walkJump(pl, 188, 1); }
+    else if (phase === 'toU1') { if (on('u1')) phase = 'toU2'; else if (on('f0') && await goRight(pl, 'f0', 320)) {} else await walkJump(pl, 188, 1); }
     else if (phase === 'toU2') { if (on('u2')) phase = 'toU3'; else await walkJump(pl, 228, 1); }
     else if (phase === 'toU3') { if (on('u3')) phase = 'toP1'; else await walkJump(pl, 281, 1); }
     // u3 → P1(右上へ 26px)→ M1(左上へ 20px)→ 1 階(左へ)→ がれきの階段 → 2 階・中(別ルートと同じ)。
@@ -934,7 +957,7 @@ async function playWithKeyboard(page, route, opts = {}) {
       else if (opts.birds && s.birds.some((b) => b.line === 2 && b.x > 250 && b.x < 392)) await keys();
       else await walkJump(pl, 334, 1);
     }
-    else if (phase === 'toM1') { if (on('M1')) phase = 'toC1'; else await walkJump(pl, 359, -1); }
+    else if (phase === 'toM1') { if (on('M1')) phase = 'toC1'; else if ((on('P1') || on('r1')) && await goRight(pl, 'r1', 462)) {} else await walkJump(pl, 359, -1); }
     else if (phase === 'toC1') {
       if (on('c1')) phase = 'toS1';
       else if (opts.birds && s.birds.some((b) => b.line === 2 && b.x < 330)) await keys();
@@ -947,7 +970,7 @@ async function playWithKeyboard(page, route, opts = {}) {
     // (B の床のどこからでも r2 に届くので、B が 2 階に止まっていればその場ですぐ右へ跳ぶ)
     else if (phase === 'rideB' && !detourDone && on('B') && Math.abs(by - 320) < 0.01 && B.pause > 0) { phase = 'toR2floor'; await keys('ArrowRight', 'Space'); }
     else if (phase === 'toR2floor') { if (on('r2')) phase = 'toR1'; else await keys(); }
-    else if (phase === 'toR1') { if (on('R1')) phase = 'toR2'; else await walkJump(pl, opts.r2Takeoff, 1); }
+    else if (phase === 'toR1') { if (on('R1')) phase = 'toR2'; else if (await goRight(pl, 'r2', 472)) {} else await walkJump(pl, opts.r2Takeoff, 1); }
     else if (phase === 'toR2') { if (on('R2')) phase = 'backDown'; else await walkJump(pl, 431, 1); }
     else if (phase === 'backDown') { if (on('r2')) phase = 'backToB'; else await keys('ArrowLeft'); }
     else if (phase === 'backToB') {
@@ -960,7 +983,7 @@ async function playWithKeyboard(page, route, opts = {}) {
     // (B の床のどこからでも K1 に届くので、B が最上段に止まっていればその場ですぐ右へ跳ぶ)
     else if (phase === 'rideB' && !topDone && on('B') && Math.abs(by - 160) < 0.01 && B.pause > 0) { phase = 'toK1'; await keys('ArrowRight', 'Space'); }
     else if (phase === 'toK1') { if (on('K1')) phase = 'toK2'; else await keys(); }
-    else if (phase === 'toK2') { if (on('K2')) phase = 'toK3'; else await walkJump(pl, 392, 1); }
+    else if (phase === 'toK2') { if (on('K2')) phase = 'toK3'; else if (await goRight(pl, 'K1', 472)) {} else await walkJump(pl, 392, 1); }
     else if (phase === 'toK3') { if (on('K3')) phase = 'downK'; else await walkJump(pl, 434, 1); }
     else if (phase === 'downK') { if (on('K1')) phase = 'backToBtop'; else await keys('ArrowLeft'); }
     else if (phase === 'backToBtop') {
@@ -979,7 +1002,7 @@ async function playWithKeyboard(page, route, opts = {}) {
   }
   await keys();
   // last: 終わったときの主人公・鳥・鉄球(ミスしたときの原因を調べる用)
-  return { state: s.state, deathReason: s.deathReason, visited, phase, dodges, lives: s.lives,
+  return { state: s.state, deathReason: s.deathReason, visited, phase, dodges, lives: s.lives, score: s.score, prizes: s.prizes,
     last: { x: s.player.x, y: s.player.y, st: s.player.state, birds: s.birds.map((b) => [b.line, Math.round(b.x)]), ball: s.wreckingBall && [s.wreckingBall.x, s.wreckingBall.y] } };
 }
 
@@ -1286,7 +1309,7 @@ test('L21. 1 階の右の飛び石 M1: 本物のキーボード操作で 1 階�
   }
 });
 
-test('L22. 新しい足場(K1・K2・K3・M1・P1)の見た目と当たり判定は一致する。釘バットの取り方(浮いていて、跳ばないと拾えない)は変わらない', async ({ page }) => {
+test('L22. 新しい足場(K1・K2・K3・M1・P1)の見た目と当たり判定は一致する。3 面には釘バットを置かない(撤去した)', async ({ page }) => {
   test.setTimeout(120000);
   await start3(page);
   await page.waitForTimeout(80);
@@ -1321,20 +1344,15 @@ test('L22. 新しい足場(K1・K2・K3・M1・P1)の見た目と当たり判定
     await start3(page);
     await page.waitForTimeout(40);
   }
-  // 釘バット: r1 の上を端から端まで歩いても拾えず、真下で跳ぶと拾う(新しい足場を足しても変わらない)
+  // 釘バット: 3 面では撤去した(使う場面がほとんどないため)。r1 の上を端から端まで歩いても、跳んでも、バットは持たない
   await start3(page);
   let s = await page.evaluate(() => window.__dp.snapshot());
-  const it = s.items.find((i) => i.type === 'bat');
-  expect(it.taken).toBe(false);
-  expect(it.y + it.h).toBeLessThanOrEqual(430 - 26); // 浮いている(立った主人公の頭の上端より下には来ない)
+  expect(s.items).toEqual([]);
   await page.evaluate(() => window.__dp.placePlayer('r1', 392));
   s = await hold(page, 'ArrowRight', 60);
-  expect(s.items.find((i) => i.type === 'bat').taken).toBe(false);
-  expect(s.player.bat).toBe(0);
-  await page.evaluate(() => window.__dp.placePlayer('r1', 446));
   await page.keyboard.press('Space');
   for (let i = 0; i < 60; i++) s = await step(page, 1);
-  expect(s.player.bat).toBeGreaterThan(0);
+  expect(s.player.bat).toBe(0);
 });
 
 // ---- 解体用の鉄球(本体に触れるとミス。ワイヤーには当たり判定なし) ----
@@ -1855,3 +1873,137 @@ test('L36. パンクニワトリの回避ボーナス: その鳥のラインの�
   const cfg = await page.evaluate(() => window.DP.config.score);
   expect(cfg.jumpOver).toBe(100);
 });
+
+test('L37. R1・R5・R10・R20 で、3 ルート(メイン・別ルート・下ルート)とも最初から最後までクリアできる(速くなったリフトでも乗り移れる。鳥なし。この自動プレイは鉄球をよけないので L2 と同じく鉄球の当たり判定を止める)', async ({ page }) => {
+  test.setTimeout(240000);
+  const res = [];
+  for (const round of [1, 5, 10, 20]) {
+    for (const route of ['c2', 'c1', 'low']) {
+      await start3(page, round, { ball: false });
+      const r = await playRoute(page, route);
+      res.push(`R${round} ${route}: ${r.state} ${r.seconds.toFixed(1)}s`);
+      expect(r.state, `R${round} ${route}`).toBe('escape');
+    }
+  }
+  console.log('L37 ' + res.join(' / '));
+});
+
+// 周回 round で、リフトへの乗り移り・リフトからの飛び移りに成功する踏み切りタイミングの幅(ステップ数)を、
+// 1 ステップずつずらして実際に跳ばせて数える(鳥なし・鉄球の当たり判定なし。位置の書き換えは開始位置だけ)
+function liftWindows(page, round) {
+  return page.evaluate((r) => {
+    const dp = window.__dp;
+    const key = (k, d) => window.dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { key: k }));
+    const begin = () => {
+      dp.setManual(true); dp.setBirdsEnabled(false); dp.setWreckingBallEnabled(false); dp.startStage(2, r);
+      let s = dp.step(1);
+      while (s.state !== 'playing') s = dp.step(1);
+      return s;
+    };
+    // 跳んでから着地(またはミス)まで進め、着地した足場(リフトは 'A' / 'B')を返す
+    const land = (s) => {
+      for (let i = 0; i < 3; i++) s = dp.step(1);
+      key('ArrowRight', false); key('ArrowLeft', false); key(' ', false);
+      for (let i = 0; i < 200 && s.state === 'playing' && s.player.state !== 'ground'; i++) s = dp.step(1);
+      if (s.state !== 'playing') return 'X';
+      const gd = s.player.girder || '';
+      return /^[AB]\d/.test(gd) ? gd[0] : gd;
+    };
+    const out = {};
+    // リフト A を降りる: A に乗り、板が「降りる階 + dy」まで上がったら右へ跳ぶ(dy を 1px ずつ)
+    for (const [floor, lvl] of [['c2a', 320], ['c1', 430]]) {
+      let ok = 0;
+      for (let dy = -70; dy <= 70; dy++) {
+        let s = begin();
+        dp.placePlayer('f0', 88);
+        for (let i = 0; i < 600 && !(s.player.girder && s.player.girder[0] === 'A'); i++) s = dp.step(1);
+        for (let i = 0; i < 900 && s.state === 'playing' && s.player.y > lvl + dy; i++) s = dp.step(1);
+        key('ArrowRight', true); key(' ', true);
+        if (land(s) === floor) ok++;
+      }
+      out['A→' + floor] = ok / dp.lifts()[0].speed; // 成功した dy の幅(px)を、板の速さで割ってステップ数にする
+    }
+    // 2 階・右(x=311)からリフト B へ: B が 2 階に着くステップ(bottomAt)の k ステップ前後に右へ跳ぶ
+    {
+      let ok = 0;
+      for (let k = -200; k <= 120; k++) {
+        let s = begin();
+        dp.placePlayer('c2c', 311);
+        for (let i = 0; i < 650 + k; i++) { dp.placePlayer('c2c', 311); s = dp.step(1); }
+        key('ArrowRight', true); key(' ', true);
+        if (land(s) === 'B') ok++;
+      }
+      out['c2c→B'] = ok; // 成功したタイミングの数(ステップ)
+    }
+    // リフト B から屋上の端のがれき bs へ: B の床の真ん中に乗せ、B が屋上の高さに着いてから k ステップ後に左へ跳ぶ
+    {
+      let ok = 0;
+      for (let k = -120; k <= 120; k++) {
+        let s = begin();
+        for (let i = 0; i < 650; i++) s = dp.step(1);
+        const plate = dp.lifts()[1].plates[0].id;
+        dp.placePlayer(plate, 364);
+        let top = null;
+        for (let i = 0; i < 900 && s.state === 'playing'; i++) {
+          s = dp.step(1);
+          const B = dp.lifts()[1];
+          if (top === null && Math.abs(B.plates[0].y - 160) < 0.01) top = i;
+          if (top !== null && i >= top + k) break;
+          if (top === null && k < 0) {
+            // 着く前に跳ぶ: 着くまでの残りステップで判定する
+            const eta = (B.plates[0].y - 160) / B.speed;
+            if (B.dir < 0 && eta <= -k) break;
+          }
+        }
+        key('ArrowLeft', true); key(' ', true);
+        if (land(s) === 'bs') ok++;
+      }
+      out['B→bs'] = ok;
+    }
+    return out;
+  }, round);
+}
+
+test('L38. 速くなったリフトでも乗り移れる: R10 でも各乗り場で成功する踏み切りタイミングが残っている(R1 と比べる)', async ({ page }) => {
+  test.setTimeout(240000);
+  await page.goto('./?test');
+  await page.waitForFunction(() => window.__dp && window.__dp.snapshot().state === 'title');
+  const w1 = await liftWindows(page, 1);
+  const w10 = await liftWindows(page, 10);
+  console.log('L38 R1 ' + JSON.stringify(w1) + ' / R10 ' + JSON.stringify(w10));
+  // どの乗り移りも、R10 で成功するタイミングが 0.5 秒(30 ステップ)以上ある
+  for (const k of Object.keys(w1)) {
+    expect(w1[k], `R1 ${k}`).toBeGreaterThanOrEqual(30);
+    expect(w10[k], `R10 ${k}`).toBeGreaterThanOrEqual(30);
+  }
+});
+
+test('L39. 本物のキーボード操作だけで、R5・R10 でも通常ルートと下ルートを最初から最後まで通ってクリアできる(鉄球あり・鳥なし)', async ({ page }) => {
+  test.setTimeout(300000);
+  for (const round of [5, 10]) {
+    for (const route of ['c2', 'low']) {
+      await start3(page, round);
+      const r = await playWithKeyboard(page, route);
+      expect(r.state, `R${round} ${route}: ${r.phase} で止まった(${r.deathReason})`).toBe('escape');
+    }
+  }
+});
+
+test('L40. ボーナスアイテム 6 個すべてに、本物のキーボード操作で到達して取り、通常の攻略ルートへ戻ってクリアできる(合計 3,600 点)。取らなくてもクリアできる', async ({ page }) => {
+  test.setTimeout(300000);
+  // 下ルート + 右の飛び石 + 右上の棚: 地面の右端・r1・r2・R2・K1・K3 の 6 個を取ってからクリア
+  await start3(page);
+  const all = await playWithKeyboard(page, 'low', { detour: true, r2Takeoff: 391, topDetour: true, collect: true });
+  expect(all.state, `${all.phase} で止まった(${all.deathReason})`).toBe('escape');
+  expect(all.prizes.map((p) => p.id + ':' + p.taken)).toEqual(
+    ['tapeF0:true', 'tapeR1:true', 'jacketR2:true', 'jacketK1:true', 'guitarR2:true', 'guitarK3:true']);
+  // 通った足場: 寄り道のあとは、いつものルート(B → 屋上の端のがれき → 屋上 → ガール)に戻っている
+  const tail = all.visited.slice(all.visited.lastIndexOf('f0'));
+  expect(tail).toEqual(['f0', 'u1', 'u2', 'u3', 'P1', 'r1', 'P1', 'M1', 'c1', 's1', 's2', 's3', 'c2b', 'c2c', 'B', 'r2', 'R1', 'R2', 'r2', 'B', 'K1', 'K2', 'K3', 'K2', 'K1', 'B', 'bs', 'b', 'top']);
+  // アイテムを取らない通常ルートでもクリアでき、アイテムは残ったまま
+  await start3(page);
+  const none = await playWithKeyboard(page, 'c2');
+  expect(none.state).toBe('escape');
+  expect(none.prizes.every((p) => !p.taken)).toBe(true);
+});
+
