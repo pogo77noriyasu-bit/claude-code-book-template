@@ -1,0 +1,242 @@
+{
+ "top300/1": {
+  "throws": [
+   [
+    90,
+    "bottle"
+   ],
+   [
+    254,
+    "bottle"
+   ],
+   [
+    505,
+    "bottle"
+   ],
+   [
+    713,
+    "bottle"
+   ],
+   [
+    883,
+    "can"
+   ],
+   [
+    1100,
+    "bottle"
+   ],
+   [
+    1286,
+    "can"
+   ],
+   [
+    1506,
+    "bottle"
+   ],
+   [
+    1680,
+    "bottle"
+   ]
+  ],
+  "hash": "eee2e03d",
+  "count": 9
+ },
+ "top300/7": {
+  "throws": [
+   [
+    90,
+    "can"
+   ],
+   [
+    260,
+    "bottle"
+   ],
+   [
+    471,
+    "can"
+   ],
+   [
+    701,
+    "can"
+   ],
+   [
+    913,
+    "can"
+   ],
+   [
+    1103,
+    "bottle"
+   ],
+   [
+    1341,
+    "bottle"
+   ],
+   [
+    1567,
+    "bottle"
+   ]
+  ],
+  "hash": "c219571e",
+  "count": 8
+ },
+ "top300/42": {
+  "throws": [
+   [
+    90,
+    "bottle"
+   ],
+   [
+    294,
+    "bottle"
+   ],
+   [
+    505,
+    "bottle"
+   ],
+   [
+    748,
+    "bottle"
+   ],
+   [
+    954,
+    "can"
+   ],
+   [
+    1120,
+    "bottle"
+   ],
+   [
+    1287,
+    "bottle"
+   ],
+   [
+    1477,
+    "can"
+   ],
+   [
+    1653,
+    "bottle"
+   ]
+  ],
+  "hash": "72c88e70",
+  "count": 9
+ },
+ "g1ladder256/1": {
+  "throws": [
+   [
+    90,
+    "bottle"
+   ],
+   [
+    254,
+    "bottle"
+   ],
+   [
+    505,
+    "bottle"
+   ],
+   [
+    713,
+    "bottle"
+   ],
+   [
+    883,
+    "can"
+   ],
+   [
+    1100,
+    "bottle"
+   ],
+   [
+    1457,
+    "bottle"
+   ],
+   [
+    1643,
+    "bottle"
+   ]
+  ],
+  "hash": "13e8bf99",
+  "count": 8
+ },
+ "g1ladder256/7": {
+  "throws": [
+   [
+    90,
+    "can"
+   ],
+   [
+    260,
+    "bottle"
+   ],
+   [
+    471,
+    "can"
+   ],
+   [
+    701,
+    "can"
+   ],
+   [
+    913,
+    "can"
+   ],
+   [
+    1103,
+    "bottle"
+   ],
+   [
+    1341,
+    "bottle"
+   ],
+   [
+    1781,
+    "can"
+   ]
+  ],
+  "hash": "1faff3c",
+  "count": 8
+ },
+ "g1ladder256/42": {
+  "throws": [
+   [
+    90,
+    "bottle"
+   ],
+   [
+    294,
+    "bottle"
+   ],
+   [
+    505,
+    "bottle"
+   ],
+   [
+    748,
+    "bottle"
+   ],
+   [
+    954,
+    "can"
+   ],
+   [
+    1120,
+    "can"
+   ],
+   [
+    1421,
+    "bottle"
+   ],
+   [
+    1588,
+    "bottle"
+   ],
+   [
+    1774,
+    "bottle"
+   ]
+  ],
+  "hash": "b8bbd7f6",
+  "count": 9
+ }
+}

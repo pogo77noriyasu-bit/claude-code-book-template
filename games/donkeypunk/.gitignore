@@ -1,0 +1,13 @@
+node_modules/
+test-results/
+playwright-report/
+# 設計用の参考画像(既存作品の画面写真なのでコミットしない)
+942221.jpg
+sankouenshutu.png
+# BGM アレンジの参考音源(原曲の MP3。公開しない・コミットしない)
+*.mp3
+# 開発中の調査・参考用のスクリーンショット(公開しない・コミットしない)
+aaaaa.png
+stage3_fix.png
+stage3_death.png
+stage4_reference.png
