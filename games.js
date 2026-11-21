@@ -105,6 +105,19 @@ window.GAME_LIST = [
     shot: 'assets/screenshots/naked-punk.png',
     description: 'ライブ中に裸になったパンクスが、夜のストリートへ飛び出した!警察官と機動隊、さらにパトカーや戦車まで迫る迷路で、ブーツ・ボンデージパンツ・Tシャツ・革ジャン・スタッズベルトを集めて元の姿に戻れ。ビールを飲めば反撃のチャンス!',
   },
+  {
+    // α版(2026-11-22 公開)。画像は AI 生成(制作者 NORI が公開を承認)。公開日は実際に公開する日に合わせる
+    id: 'punks-olympic',
+    title: 'PUNKS OLYMPIC',
+    path: 'games/punks-olympic/',
+    released: '2026-11-22',
+    order: 1,
+    color: 'yellow',
+    shot: 'assets/screenshots/punks-olympic.png',
+    description: '8人のパンクス・スキンズが大運動会で激突!100m走・あんパン食い競争・綱引き・玉入れ・缶蹴り・400mリレーの全6種目を、ボタン連打とタイミングで勝ち抜け!',
+    // トップページのドット文字フォントでは α が読みにくいので「アルファ版」を添える
+    note: 'α版(アルファ版)・全6種目・PC/スマートフォン対応',
+  },
 ];
 
 // 公開日の新しい順(同じ日は order の大きい順)に並べた一覧を返す。先頭が最新作

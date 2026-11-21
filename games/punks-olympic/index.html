@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>PUNKS OLYMPIC</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage">
+        <canvas id="game" width="960" height="720"></canvas>
+        <div id="sound-btn" title="音 ON/OFF(M キー)">♪</div>
+      </div>
+      <!-- スマホのボタン(RUN / ACTION の最大 2 つ)。PC では出さない -->
+      <div id="pad">
+        <div class="pad-btn" id="btn-action" data-input="action" hidden>ACTION</div>
+        <div class="pad-btn" id="btn-run" data-input="run">RUN</div>
+      </div>
+    </div>
+
+    <!-- 共通 -->
+    <script src="js/core/run-strip-data.js"></script>
+    <script src="js/core/config.js"></script>
+    <script src="js/core/sprite-data.js"></script>
+    <script src="js/core/ceremony-data.js"></script>
+    <script src="js/core/assets.js"></script>
+    <script src="js/core/characters.js"></script>
+    <script src="js/core/sound.js"></script>
+    <script src="js/core/input.js"></script>
+    <script src="js/core/records.js"></script>
+    <script src="js/core/progress.js"></script>
+    <script src="js/core/score.js"></script>
+    <script src="js/core/target.js"></script>
+    <script src="js/core/difficulty.js"></script>
+    <script src="js/core/draw.js"></script>
+    <script src="js/core/scoreboard.js"></script>
+    <script src="js/core/stadium.js"></script>
+    <!-- 種目(1 種目 = 1 ファイル) -->
+    <script src="js/events/registry.js"></script>
+    <script src="js/events/track-race.js"></script>
+    <script src="js/events/dash100.js"></script>
+    <script src="js/events/anpan.js"></script>
+    <script src="js/events/tug.js"></script>
+    <script src="js/events/balltoss.js"></script>
+    <script src="js/events/cankick.js"></script>
+    <script src="js/events/relay.js"></script>
+    <!-- 操作説明のデモ(共通の画面 + 種目ごとの実演) -->
+    <script src="js/howto/howto.js"></script>
+    <script src="js/howto/demo-dash100.js"></script>
+    <script src="js/howto/demo-anpan.js"></script>
+    <script src="js/howto/demo-tug.js"></script>
+    <script src="js/howto/demo-balltoss.js"></script>
+    <script src="js/howto/demo-cankick.js"></script>
+    <script src="js/howto/demo-relay.js"></script>
+    <!-- 画面と起動 -->
+    <script src="js/ceremony.js"></script>
+    <script src="js/scenes.js"></script>
+    <script src="js/main.js"></script>
+    <!-- 開発用のプレビュー(localhost などで ?preview=ceremony のときだけ。公開先では動かない) -->
+    <script src="js/dev-preview.js"></script>
+    <script src="js/test-hooks.js"></script>
+  </body>
+</html>
