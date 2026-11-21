@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ほりポン</title>
+  <style>
+    /* ページ全体を夜空の色にして、キャンバスを中央に置く */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0b0a18;
+      color: #f3e9d2;
+      font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.1em;
+    }
+    /* 内部解像度は 448x576 のまま、画面に収まるよう縮小表示する */
+    canvas {
+      width: min(448px, 100%, calc((100vh - 150px) * 0.7778));
+      aspect-ratio: 448 / 576;
+      border: 2px solid #4a3a2a;
+      border-radius: 8px;
+      background: #000;
+      touch-action: none;
+      image-rendering: pixelated;
+    }
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+      color: #c8b89a;
+    }
+    button {
+      background: #3a2a1c;
+      color: #f3e9d2;
+      border: 1px solid #6a5038;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    /* タッチ端末向けの十字キーとポンプボタン(マウス環境では隠す) */
+    .touch {
+      display: none;
+      width: min(448px, 100%);
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .pad {
+      display: grid;
+      grid-template-columns: repeat(3, 52px);
+      grid-template-rows: repeat(3, 52px);
+      gap: 4px;
+    }
+    .pad button, #pump-btn {
+      font-size: 20px;
+      padding: 0;
+      touch-action: none;
+    }
+    .pad [data-dir="up"] { grid-column: 2; grid-row: 1; }
+    .pad [data-dir="left"] { grid-column: 1; grid-row: 2; }
+    .pad [data-dir="right"] { grid-column: 3; grid-row: 2; }
+    .pad [data-dir="down"] { grid-column: 2; grid-row: 3; }
+    #pump-btn {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: #8a2f2f;
+      font-size: 18px;
+    }
+    @media (pointer: coarse) {
+      .touch { display: flex; }
+      .keys-help { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <h1>ほりポン</h1>
+  <canvas id="game" width="448" height="576"></canvas>
+  <div class="touch">
+    <div class="pad">
+      <button type="button" data-dir="up">▲</button>
+      <button type="button" data-dir="left">◀</button>
+      <button type="button" data-dir="right">▶</button>
+      <button type="button" data-dir="down">▼</button>
+    </div>
+    <button type="button" id="pump-btn">ポンプ</button>
+  </div>
+  <div class="bar">
+    <span class="keys-help">矢印 / WASD: 移動・掘る ・ スペース / Z: ポンプ ・ P: 一時停止</span>
+    <button id="pause-toggle" type="button">一時停止</button>
+    <button id="sound-toggle" type="button">音: ON</button>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

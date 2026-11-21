@@ -1,0 +1,140 @@
+/* NAKED PUNK — ページのスタイル
+   昔のゲーム画面風に常に黒背景(ダークモード切り替えはしない) */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #f0f0f0;
+  font-family: "DotGothic16", "Hiragino Sans", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0;
+  font-family: "Press Start 2P", monospace;
+  font-size: 14px;
+  color: #ff2a2a;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+/* 縦長の画面(336x392)を、ウィンドウに収まるよう拡大・縮小する */
+canvas {
+  width: min(336px * 1.7, 100%, calc((100vh - 110px) * 336 / 392));
+  aspect-ratio: 336 / 392;
+  image-rendering: pixelated;
+  border: 2px solid #ff2a2a;
+  background: #000;
+  outline: none;
+  touch-action: none;
+}
+
+.help {
+  margin: 0;
+  font-size: 14px;
+  color: #a8a8c8;
+  text-align: center;
+}
+
+.back {
+  margin: 0;
+  font-size: 13px;
+}
+
+.back a {
+  color: #3cf0ff;
+}
+
+/* タッチ操作のボタン(マウス・キーボードの端末では出さない。main.js が touch-ui を付ける条件と同じ) */
+.touch {
+  display: none;
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 4px;
+}
+
+.pad button {
+  font-family: "Press Start 2P", monospace;
+  font-size: 16px;
+  color: #fff;
+  background: #1a1a2e;
+  border: 2px solid #ff2a2a;
+  border-radius: 10px;
+  touch-action: none;
+}
+
+.pad button.on {
+  background: #ff2a2a;
+  color: #000;
+}
+
+.b-up { grid-column: 2; grid-row: 1; }
+.b-left { grid-column: 1; grid-row: 2; }
+.b-right { grid-column: 3; grid-row: 2; }
+.b-down { grid-column: 2; grid-row: 3; }
+
+#sound-toggle {
+  font-family: "DotGothic16", sans-serif;
+  font-size: 14px;
+  color: #fff;
+  background: #1a1a2e;
+  border: 2px solid #3cf0ff;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+/* ---- タッチ端末(マウスがない画面)だけの設定 ---- */
+.touch-ui .touch {
+  display: flex;
+  width: 100%;
+  max-width: 336px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.touch-ui .help {
+  display: none;
+}
+
+/* スマホでの誤操作防止(「きこりのパンク」と同じ)。main.js がタッチ端末のときだけ <html> に touch-ui を付ける */
+.touch-ui,
+.touch-ui body {
+  overflow: hidden;               /* 画面スクロールしない */
+  overscroll-behavior: none;      /* 引っぱって更新・端でのバウンドをしない */
+  touch-action: none;             /* スクロール・ピンチ拡大・ダブルタップ拡大をしない */
+  -webkit-user-select: none;      /* 文字選択しない */
+  user-select: none;
+  -webkit-touch-callout: none;    /* 長押しメニューを出さない(iOS) */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-ui body {
+  justify-content: flex-start;
+  height: 100vh;
+  height: 100dvh;                 /* ツールバーを除いた実際に見えている高さ */
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); /* ボタンを画面の下端から離す */
+  gap: 6px;
+}
+
+/* スクロールできないので、画面の高さにキャンバスとボタンが必ず収まるようにする */
+.touch-ui canvas {
+  width: min(100%, calc((100dvh - 270px) * 336 / 392));
+}
+
+.touch-ui h1 {
+  font-size: 11px;
+}

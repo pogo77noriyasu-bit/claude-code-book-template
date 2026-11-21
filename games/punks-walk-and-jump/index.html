@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>PUNKS WALK AND JUMP</title>
+  <meta name="description" content="緑モヒカンのパンクスが、車の行き交う道路と川を渡って、ライブハウスの入口をめざす固定画面アクション。" />
+  <!-- ドット文字: 英数字は Press Start 2P、日本語は DotGothic16 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>PUNKS WALK AND JUMP</h1>
+  <!-- 内部解像度 360x432(縦長)。CSS で画面に合わせて拡大する -->
+  <canvas id="game" width="360" height="432" tabindex="0" aria-label="ゲーム画面"></canvas>
+  <p class="help">↑↓←→ 1 マスジャンプ ・ ENTER 開始 ・ M 音 ON/OFF</p>
+
+  <!-- スマホ用のボタン(タッチ操作の端末でだけ表示)。1 回押すと 1 マス跳ぶ -->
+  <div class="touch">
+    <div class="pad" aria-label="タッチ操作">
+      <button type="button" data-key="up" class="b-up">▲</button>
+      <button type="button" data-key="left" class="b-left">◀</button>
+      <button type="button" data-key="right" class="b-right">▶</button>
+      <button type="button" data-key="down" class="b-down">▼</button>
+    </div>
+    <button type="button" id="sound-toggle">音: ON</button>
+  </div>
+
+  <p class="back"><a href="../../">← ゲーム一覧へ</a></p>
+
+  <!-- 主人公のドット絵は既存のゲームから読み込む(どちらも変更しない):
+       横向きはドンキーパンク(DP.sprites)、正面・背面は PUNKS QIX(PunkViews) -->
+  <script src="../donkeypunk/js/sprites.js"></script>
+  <script src="../punks-qix/js/punk-views.js"></script>
+  <!-- 読み込み順に意味がある(後のファイルが前のファイルを使う) -->
+  <script src="js/config.js"></script>
+  <script src="js/hero.js"></script>
+  <script src="js/lanes.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/dev-tools.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/test-hooks.js"></script>
+</body>
+</html>

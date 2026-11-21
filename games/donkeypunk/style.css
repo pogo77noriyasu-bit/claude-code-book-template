@@ -1,0 +1,61 @@
+/* ドンキーパンク — ページのスタイル
+   昔のゲーム画面風に常に黒背景(ダークモード切り替えはしない) */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #f0f0f0;
+  font-family: "DotGothic16", "Hiragino Sans", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0;
+  font-family: "Press Start 2P", monospace;
+  font-size: 16px;
+  color: #ff2f6e;
+  letter-spacing: 0.05em;
+}
+
+h1 span {
+  font-family: "DotGothic16", sans-serif;
+  color: #3cd8ff;
+  font-size: 16px;
+  margin-left: 8px;
+}
+
+/* 縦長の画面(480x560)を、ウィンドウの高さに収まるよう拡大・縮小する */
+canvas {
+  width: min(480px * 1.5, 100%, calc((100vh - 120px) * 480 / 560));
+  aspect-ratio: 480 / 560;
+  image-rendering: pixelated;
+  border: 2px solid #ff2f6e;
+  background: #05040f;
+  outline: none;
+}
+
+.help {
+  margin: 0;
+  font-size: 14px;
+  color: #a8a8c8;
+  text-align: center;
+}
+
+.back {
+  margin: 0;
+  font-size: 13px;
+}
+
+.back a {
+  color: #3cd8ff;
+}

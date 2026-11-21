@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>流星よけ</title>
+  <style>
+    /* ページ全体を暗い宇宙色にして、キャンバスを中央に置く */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #070b1a;
+      color: #dfe6ff;
+      font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.1em;
+    }
+    /* 内部解像度は 480x640 のまま、画面に収まるよう縮小表示する */
+    canvas {
+      width: min(480px, 100%, calc((100vh - 140px) * 0.75));
+      aspect-ratio: 3 / 4;
+      border: 2px solid #2a3566;
+      border-radius: 8px;
+      background: #000;
+      touch-action: none;
+    }
+    .bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 13px;
+      color: #8f9bd0;
+    }
+    button {
+      background: #1a2350;
+      color: #dfe6ff;
+      border: 1px solid #3a4890;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>流星よけ</h1>
+  <canvas id="game" width="480" height="640"></canvas>
+  <div class="bar">
+    <span>←→ / A D / ドラッグで移動 ・ P で一時停止</span>
+    <button id="sound-toggle" type="button">音: ON</button>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

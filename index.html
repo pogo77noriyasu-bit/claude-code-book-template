@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ゲーム一覧</title>
+  <meta name="description" content="ブラウザで遊べるレトロアーケード風ゲームの一覧です。新作ゲームも順次追加していきます。">
+  <!-- ドット文字: 英数字は Press Start 2P、日本語は DotGothic16 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    /* 1980 年代のゲームセンター風。昔のゲーム画面は常に黒背景なので、ダークモード切り替えはしない */
+    :root {
+      --bg: #000000;
+      --panel: #0b0b1e;
+      --text: #f8f8f8;
+      --muted: #b4b4d0;
+      --cyan: #3cf0ff;
+      --magenta: #ff3cc8;
+      --yellow: #ffe83c;
+      --green: #3cff6e;
+      --orange: #ff9a2a;
+      --red: #ff4848;
+      --pixel: 4px; /* ドット 1 粒の大きさ */
+      --font-en: "Press Start 2P", monospace;
+      --font-ja: "DotGothic16", "Press Start 2P", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { background: var(--bg); }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        /* 小さな星を散らした背景(動かない) */
+        radial-gradient(2px 2px at 12% 18%, #fff 50%, transparent 51%),
+        radial-gradient(2px 2px at 78% 9%, #fff 50%, transparent 51%),
+        radial-gradient(2px 2px at 45% 62%, #aaf 50%, transparent 51%),
+        radial-gradient(2px 2px at 88% 72%, #fff 50%, transparent 51%),
+        radial-gradient(2px 2px at 23% 85%, #aaf 50%, transparent 51%),
+        radial-gradient(2px 2px at 63% 33%, #fff 50%, transparent 51%),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--font-ja);
+      font-size: 17px;
+      line-height: 1.7;
+      -webkit-font-smoothing: none;
+    }
+
+    /* ブラウン管の走査線(画面全体に横じまを重ねる。クリックは下へ通す) */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.22) 3px, rgba(0, 0, 0, 0) 4px);
+      z-index: 10;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 16px 64px;
+    }
+
+    /* ---- 上部: ゲームセンターの看板 ---- */
+    .hud {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: var(--font-en);
+      font-size: 11px;
+      line-height: 2;
+      margin-bottom: 28px;
+    }
+    .hud span { display: block; }
+    .hud .label { color: var(--red); }
+    .hud .num { color: var(--text); }
+    .hud div:nth-child(2) { text-align: center; }
+    .hud div:nth-child(3) { text-align: right; }
+
+    .marquee {
+      text-align: center;
+      margin: 0 auto 8px;
+      padding: 14px 12px 10px;
+      max-width: 760px;
+      border: var(--pixel) solid var(--magenta);
+      box-shadow: 0 0 0 var(--pixel) #5a1080, inset 0 0 0 var(--pixel) #2a0838;
+      background: #0a0414;
+    }
+    .marquee .sign {
+      margin: 0;
+      font-family: var(--font-en);
+      font-size: clamp(18px, 4.6vw, 34px);
+      line-height: 1.4;
+      color: var(--yellow);
+      text-shadow: 3px 3px 0 var(--magenta), 6px 6px 0 #5a1080;
+      letter-spacing: 0.08em;
+    }
+    .marquee h1 {
+      margin: 8px 0 0;
+      font-family: var(--font-ja);
+      font-weight: normal;
+      font-size: clamp(18px, 3.6vw, 24px);
+      color: var(--cyan);
+    }
+    .press-start {
+      text-align: center;
+      font-family: var(--font-en);
+      font-size: 12px;
+      color: var(--text);
+      margin: 18px 0 8px;
+      animation: blink 1.2s steps(1) infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* セクション見出し */
+    h2 {
+      font-family: var(--font-en);
+      font-size: 15px;
+      font-weight: normal;
+      margin: 40px 0 18px;
+      color: var(--green);
+    }
+    h2::before { content: "■ "; }
+    h2 small { font-family: var(--font-ja); font-size: 14px; color: var(--muted); margin-left: 10px; }
+
+    /* 枠の色(ゲームごと) */
+    .c-cyan { --frame: var(--cyan); }
+    .c-magenta { --frame: var(--magenta); }
+    .c-green { --frame: var(--green); }
+    .c-orange { --frame: var(--orange); }
+    .c-red { --frame: var(--red); }
+    .c-yellow { --frame: var(--yellow); }
+
+    /* ---- カード(1 つのゲーム)。カード全体がリンク ---- */
+    .card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      color: inherit;
+      text-decoration: none;
+      /* 四辺を box-shadow で描き、角を 1 ドットぶん欠けさせたドットの枠 */
+      box-shadow:
+        0 calc(var(--pixel) * -1) 0 0 var(--frame, var(--cyan)),
+        0 var(--pixel) 0 0 var(--frame, var(--cyan)),
+        calc(var(--pixel) * -1) 0 0 0 var(--frame, var(--cyan)),
+        var(--pixel) 0 0 0 var(--frame, var(--cyan));
+      margin: var(--pixel);
+    }
+    a.card:hover, a.card:focus-visible { --frame: var(--yellow); outline: none; }
+
+    /* スクリーンショット(主役)。ゲーム画面は縦長・横長があるので、黒い画面の中に収める */
+    .screen {
+      position: relative;
+      margin: 0;
+      background: #000;
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      border-bottom: var(--pixel) solid var(--frame, var(--cyan));
+    }
+    .screen img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    /* 画面の上に薄い走査線(動かない) */
+    .screen::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.25) 3px);
+    }
+
+    .info { display: flex; flex-direction: column; flex: 1; padding: 14px 16px 16px; }
+    .info h3 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: normal;
+      line-height: 1.3;
+      color: var(--frame, var(--cyan));
+    }
+    .date { margin: 4px 0 8px; font-family: var(--font-en); font-size: 9px; color: var(--muted); }
+    .desc { margin: 0 0 10px; color: var(--muted); font-size: 15px; }
+    .tag {
+      align-self: flex-start;
+      margin: 0 0 10px;
+      padding: 2px 8px;
+      font-size: 13px;
+      color: var(--yellow);
+      border: 2px solid var(--yellow);
+    }
+    /* 「PLAY」ボタン */
+    .play {
+      align-self: flex-start;
+      margin-top: auto;
+      font-family: var(--font-en);
+      font-size: 12px;
+      color: var(--bg);
+      background: var(--frame, var(--cyan));
+      padding: 10px 14px;
+    }
+    .play::before { content: "▶ "; }
+    /* 選択カーソル: ホバー・フォーカスで PLAY ボタンが点滅する */
+    a.card:hover .play, a.card:focus-visible .play { animation: blink 0.6s steps(1) infinite; }
+
+    /* ---- 最新作: 大きなカード(画面 + 説明の 2 列) ---- */
+    .featured { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+    .featured .screen { aspect-ratio: 1 / 1; border-bottom: none; border-right: var(--pixel) solid var(--frame, var(--cyan)); }
+    .featured .info { padding: 24px; justify-content: center; }
+    .featured .info h3 { font-family: var(--font-en); font-size: clamp(20px, 3.2vw, 32px); line-height: 1.4; }
+    .featured .desc { font-size: 17px; color: var(--text); }
+    .featured .play { font-size: 15px; padding: 14px 18px; margin-top: 8px; }
+    .catch { margin: 0 0 6px; font-family: var(--font-en); font-size: 11px; color: var(--yellow); }
+    /* NEW マーク(ゆっくり点滅するだけの軽い演出) */
+    .new {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 2;
+      padding: 8px 10px;
+      font-family: var(--font-en);
+      font-size: 14px;
+      color: var(--yellow);
+      background: var(--red);
+      box-shadow: 4px 4px 0 #5a0808;
+      transform: rotate(-8deg);
+      animation: blink 1.4s steps(1) infinite;
+    }
+
+    /* ---- 一覧: PC は複数列、狭い画面は幅に合わせて自動で列数が減る ---- */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 20px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .grid > li { display: flex; }
+    .grid > li > .card { flex: 1; }
+
+    /* お知らせ(JavaScript 無効時のメッセージ) */
+    .note {
+      margin-top: 12px !important;
+      padding: 8px 12px;
+      border-left: var(--pixel) solid var(--yellow);
+      background: #1a1a10;
+      color: var(--yellow) !important;
+      font-size: 15px;
+    }
+
+    footer {
+      margin-top: 56px;
+      text-align: center;
+      font-family: var(--font-en);
+      font-size: 11px;
+      line-height: 2.4;
+      color: var(--muted);
+    }
+    footer a { color: var(--cyan); }
+    .credit { color: var(--yellow); }
+
+    /* スマートフォン: 最新作も 1 列にする */
+    @media (max-width: 720px) {
+      .featured { grid-template-columns: 1fr; }
+      .featured .screen { border-right: none; border-bottom: var(--pixel) solid var(--frame, var(--cyan)); aspect-ratio: 4 / 3; }
+      .featured .info { padding: 16px; }
+    }
+    @media (max-width: 520px) {
+      body { font-size: 16px; }
+      .hud { font-size: 8px; }
+      h2 { font-size: 13px; }
+      .new { font-size: 11px; }
+    }
+    /* 動きを減らす設定の人には点滅を止める */
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <!-- 画面上部のスコア表示(飾り) -->
+    <div class="hud" aria-hidden="true">
+      <div><span class="label">1UP</span><span class="num">000300</span></div>
+      <div><span class="label">HI-SCORE</span><span class="num">019800</span></div>
+      <div><span class="label">CREDIT</span><span class="num">01</span></div>
+    </div>
+
+    <header class="marquee">
+      <p class="sign">GAME CENTER</p>
+      <h1>ゲーム一覧</h1>
+    </header>
+    <p class="press-start" aria-hidden="true">INSERT COIN</p>
+
+    <!-- 最新作(games.js の一覧から自動で決まる) -->
+    <h2>NEW ARRIVAL<small>最新作</small></h2>
+    <div id="featured"></div>
+
+    <!-- それ以外のゲーム(新しい順) -->
+    <h2>ALL GAMES<small>新しい順</small></h2>
+    <ul class="grid" id="games"></ul>
+
+    <noscript>
+      <p class="note">ゲームの一覧を表示するには JavaScript を有効にしてください。</p>
+    </noscript>
+
+    <footer>
+      <div class="credit">THANK YOU FOR PLAYING!</div>
+      <div><a href="https://github.com/pogo77noriyasu-bit/claude-code-book-template">GITHUB REPOSITORY</a></div>
+      <div>© 2026 POGO77</div>
+    </footer>
+  </main>
+
+  <!-- ゲームの情報は games.js で一元管理する(追加するだけで並び順と最新作が切り替わる) -->
+  <script src="games.js"></script>
+  <script>
+    // games.js の一覧からカードを作る(文字は textContent で入れる)
+    (function () {
+      const games = window.sortGames(window.GAME_LIST);
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      };
+      const date = (d) => d.replace(/-/g, '.');
+
+      // 1 本分のカード。featured: 最新作の大きなカード
+      function card(g, featured) {
+        const a = el('a', 'card c-' + g.color + (featured ? ' featured' : ''));
+        a.href = g.path;
+        a.dataset.id = g.id;
+        const fig = el('figure', 'screen');
+        const img = el('img');
+        img.src = g.shot;
+        img.alt = g.title + ' のプレイ画面';
+        if (!featured) img.loading = 'lazy';
+        fig.appendChild(img);
+        if (featured) fig.appendChild(el('span', 'new', 'NEW!'));
+        a.appendChild(fig);
+        const info = el('div', 'info');
+        if (featured) info.appendChild(el('p', 'catch', 'NOW ON SALE'));
+        info.appendChild(el('h3', '', g.title));
+        info.appendChild(el('p', 'date', 'RELEASE ' + date(g.released)));
+        info.appendChild(el('p', 'desc', g.description));
+        if (g.note) info.appendChild(el('p', 'tag', g.note));
+        info.appendChild(el('span', 'play', 'PLAY'));
+        a.appendChild(info);
+        return a;
+      }
+
+      if (!games.length) return;
+      document.getElementById('featured').appendChild(card(games[0], true));
+      const list = document.getElementById('games');
+      for (const g of games.slice(1)) {
+        const li = el('li');
+        li.appendChild(card(g, false));
+        list.appendChild(li);
+      }
+    })();
+  </script>
+</body>
+</html>
