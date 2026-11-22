@@ -118,6 +118,18 @@ window.GAME_LIST = [
     // トップページのドット文字フォントでは α が読みにくいので「アルファ版」を添える
     note: 'α版(アルファ版)・全6種目・PC/スマートフォン対応',
   },
+  {
+    // 第 11 弾・完成版(2026-11-22 公開)。素材は NORI が用意したもの(権利 OK・公開を NORI が承認)。制作: NORI (POGO77RECORDS / TOM AND BOOT BOYS)
+    id: 'punks-skins-rescue',
+    title: 'PUNKS & SKINS RESCUE',
+    path: 'games/punks-skins-rescue/',
+    released: '2026-11-22',
+    order: 2,
+    color: 'red',
+    shot: 'assets/screenshots/punks-skins-rescue.png',
+    description: '炎上するビルから飛び降りるパンクス・スキンズを、キャバ嬢が担架で受け止めて救急車へ跳ね返せ!警官・機動隊は受け止めるな。3ステージごとにキャバクラでひと休み。',
+    note: '完成版・PC/スマートフォン(横画面)対応',
+  },
 ];
 
 // 公開日の新しい順(同じ日は order の大きい順)に並べた一覧を返す。先頭が最新作

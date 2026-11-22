@@ -1,0 +1,234 @@
+/* PUNKS & SKINS RESCUE: 画面いっぱいに、背景の縦横比(1672:941)のまま表示する */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #ccc;
+  font-family: sans-serif;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+#game {
+  display: block;
+  width: min(100vw, calc((100vh - 32px) * 1672 / 941));
+  height: auto;
+  aspect-ratio: 1672 / 941;
+}
+/* 画面の下の操作説明もドット文字(DotGothic16 は 16px が本来の大きさ。ぼやけない) */
+.help {
+  margin: 4px 0 0;
+  font-family: 'DotGothic16', monospace;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+/* ---- スマートフォンのボタンと案内: PC では出さない(PC のレイアウトは上のまま) ---- */
+.pad,
+.rotate {
+  display: none;
+}
+.screen {
+  display: contents; /* PC: canvas が body の直接の子と同じ扱い */
+}
+
+/* ==== スマートフォン(タッチ画面。2026-11-22) ====
+   横向き: 左下に左ボタン・中央にゲーム画面・右下に右ボタン。1980 年代の携帯液晶ゲーム機風(赤い本体・金の縁取り・大きな丸いボタン)。
+   ノッチ・ホームバーは safe-area-inset で避ける。縦向きは横向きにする案内だけを出す。 */
+@media (hover: none) and (pointer: coarse) {
+  :root {
+    --ratio: calc(1672 / 941);
+    --btn: clamp(64px, 22vh, 96px); /* ボタンの直径(親指で押しやすい大きさ) */
+    --inset: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px)); /* ノッチの側の余白(左右そろえる) */
+    --side: calc(var(--inset) + var(--btn) + 28px); /* 左右の列の幅 */
+    --frame: 8px; /* 画面のまわりの黒い縁 + 金の線 */
+    --vh: 100vh;
+  }
+  @supports (height: 100dvh) {
+    :root {
+      --vh: 100dvh; /* アドレスバーなどを除いた、実際に見えている高さ */
+    }
+  }
+  html,
+  body {
+    position: fixed; /* スクロール・引っぱって更新を起こさない */
+    inset: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none; /* スクロール・ダブルタップの拡大・ピンチを止める */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    /* 本体: 赤い樹脂に、上下の細い金の線 */
+    background:
+      linear-gradient(#c9a24a, #c9a24a) top 6px left 0 / 100% 2px no-repeat,
+      linear-gradient(#c9a24a, #c9a24a) bottom 6px left 0 / 100% 2px no-repeat,
+      radial-gradient(ellipse at 50% 35%, #8e1d24 0%, #5e1016 60%, #3c0a0e 100%);
+  }
+  .help {
+    display: none;
+  }
+  .screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+  /* ゲーム画面: 縦横比 1672:941 のまま、左右の列のあいだ・上下の余白の内側に収まる最大の大きさ */
+  #game {
+    width: min(calc(100vw - 2 * var(--side) - 2 * var(--frame)), calc((var(--vh) - 24px - env(safe-area-inset-bottom, 0px) - 2 * var(--frame)) * var(--ratio)));
+    border: 3px solid #000;
+    outline: 2px solid #c9a24a; /* 金の縁取り */
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px #111, 0 4px 14px rgba(0, 0, 0, 0.6);
+    border-radius: 2px;
+    touch-action: none;
+  }
+  /* 左右の列: ボタンを下に寄せる(両手で持ったときの親指の位置) */
+  .pad {
+    display: flex;
+    flex: 0 0 var(--side);
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    box-sizing: border-box;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  }
+  .pad {
+    position: relative; /* タッチの判定 .hit の基準 */
+  }
+  /* タッチの判定(2026-11-22): 見た目の丸ボタンより広い透明な四角。ボタンの見た目・大きさ・位置は変えない。
+     横: 左右の列の幅いっぱい(画面の端からゲーム画面の手前まで。ゲーム画面とは別の要素なので重ならず、左右の判定も離れている)。
+     縦: ボタンの上端より HIT_UP 上から、画面の下端まで(ホームバーの余白も含む)。
+     iPhone 13 相当(750×342)で 約 103 × 121px(ボタンの直径は 75px)。ノッチのある実機は、ノッチの側の余白(約 47px)のぶん横に広い */
+  .hit {
+    --hit-up: 28px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--btn) + 18px + env(safe-area-inset-bottom, 0px) + var(--hit-up));
+    z-index: 1;
+    background: transparent;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pad .btn {
+    pointer-events: none; /* 押すのは上に重ねた .hit(見た目だけのボタン) */
+  }
+  .pad-left {
+    padding-left: var(--inset);
+  }
+  .pad-right {
+    padding-right: var(--inset);
+  }
+  .pad-label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #e8c766;
+    text-shadow: 0 1px 0 #2a0608;
+  }
+  /* 大きな丸いボタン(押すと沈む) */
+  .btn {
+    width: var(--btn);
+    height: var(--btn);
+    padding: 0;
+    border-radius: 50%;
+    border: 4px solid #1a1a1a;
+    background: radial-gradient(circle at 35% 30%, #ff7a6a 0%, #e8322a 45%, #a3161a 100%);
+    box-shadow:
+      0 0 0 4px #c9a24a,
+      0 6px 0 4px #2a0608,
+      0 8px 14px 4px rgba(0, 0, 0, 0.5);
+    color: #3a0608;
+    touch-action: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 矢印は CSS の三角(文字の ◀ ▶ は iPhone で絵文字になることがあるため) */
+  .btn .arrow {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-top: calc(var(--btn) * 0.16) solid transparent;
+    border-bottom: calc(var(--btn) * 0.16) solid transparent;
+    pointer-events: none;
+  }
+  .btn .arrow-left {
+    border-right: calc(var(--btn) * 0.22) solid #3a0608;
+    margin-right: calc(var(--btn) * 0.05);
+  }
+  .btn .arrow-right {
+    border-left: calc(var(--btn) * 0.22) solid #3a0608;
+    margin-left: calc(var(--btn) * 0.05);
+  }
+  .btn.on {
+    transform: translateY(4px);
+    background: radial-gradient(circle at 35% 30%, #ff5a4a 0%, #c42620 50%, #7d1013 100%);
+    box-shadow:
+      0 0 0 4px #c9a24a,
+      0 2px 0 4px #2a0608,
+      0 3px 6px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  /* 縦向き: 横向きにする案内だけを出す */
+  @media (orientation: portrait) {
+    .pad,
+    .screen {
+      display: none;
+    }
+    .rotate {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+      text-align: center;
+      font-family: 'DotGothic16', monospace;
+      font-size: 16px;
+      color: #fff27a;
+    }
+    .rotate p {
+      margin: 0;
+    }
+    .rotate-en {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px;
+      color: #e8c766;
+    }
+    /* 携帯の形が 90 度回る */
+    .rotate-phone {
+      width: 44px;
+      height: 76px;
+      margin-bottom: 18px;
+      border: 4px solid #e8c766;
+      border-radius: 8px;
+      animation: psr-rotate 2s ease-in-out infinite;
+    }
+    @keyframes psr-rotate {
+      0%,
+      20% {
+        transform: rotate(0deg);
+      }
+      60%,
+      100% {
+        transform: rotate(-90deg);
+      }
+    }
+  }
+}

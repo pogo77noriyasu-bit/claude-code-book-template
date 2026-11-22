@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <!-- スマートフォン: ノッチの裏まで使い(viewport-fit=cover。余白は CSS の safe-area-inset で取る)、拡大しない -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>PUNKS &amp; SKINS RESCUE</title>
+    <!-- ドット文字(js/dot-text.js): 英数字 = Press Start 2P、日本語 = DotGothic16(ドンキーパンク・NAKED PUNK などと同じ) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- スマートフォン(横向き)は「左下: 左ボタン / 中央: ゲーム画面 / 右下: 右ボタン」の携帯ゲーム機風(style.css・js/touch.js)。
+         PC ではボタンを出さず、.screen は display: contents で今までどおり canvas だけ -->
+    <div class="pad pad-left">
+      <span class="pad-label">LEFT</span>
+      <button class="btn" type="button" tabindex="-1" aria-hidden="true"><span class="arrow arrow-left"></span></button>
+      <!-- タッチの判定(透明。ボタンのまわりから画面の端・下端まで広く受け付ける。js/touch.js) -->
+      <div class="hit" data-dir="-1" role="button" aria-label="左へ移動"></div>
+    </div>
+    <div class="screen">
+      <canvas id="game" width="1672" height="941"></canvas>
+    </div>
+    <div class="pad pad-right">
+      <span class="pad-label">RIGHT</span>
+      <button class="btn" type="button" tabindex="-1" aria-hidden="true"><span class="arrow arrow-right"></span></button>
+      <div class="hit" data-dir="1" role="button" aria-label="右へ移動"></div>
+    </div>
+    <!-- スマートフォンを縦向きにしたときの案内 -->
+    <div class="rotate" aria-live="polite">
+      <div class="rotate-phone"></div>
+      <p>スマートフォンを横向きにしてください</p>
+      <p class="rotate-en">PLEASE ROTATE YOUR PHONE</p>
+    </div>
+    <p class="help">← → : 移動(1 回押すと 1 地点) / ENTER : スタート(タイトル画面で) / M : 音 ON・OFF</p>
+
+    <!-- 共通キャラクター素材(games/shared/characters/) -->
+    <script src="../shared/characters/pixel-sprite.js"></script>
+    <script src="../shared/characters/hostess.js"></script>
+    <script src="../shared/characters/punk-red-mohawk.js"></script>
+    <script src="../shared/characters/skin.js"></script>
+    <!-- 落ちてくる 10 人(js/characters.js)と窓の HELP! 演出の人: 共通キャラクターのドット絵(ローダーで読む) -->
+    <script src="../shared/characters/loader.js"></script>
+    <!-- 味方 8 人 -->
+    <script src="../shared/characters/pixel/punk_001/v1/punk_001.js"></script>
+    <script src="../shared/characters/pixel/punk_009/v1/punk_009.js"></script>
+    <script src="../shared/characters/pixel/punk_010/v1/punk_010.js"></script>
+    <script src="../shared/characters/pixel/punk_011/v4/punk_011.js"></script>
+    <script src="../shared/characters/pixel/punk_012/v3/punk_012.js"></script>
+    <script src="../shared/characters/pixel/punk_013/v1/punk_013.js"></script>
+    <script src="../shared/characters/pixel/punk_014/v1/punk_014.js"></script>
+    <script src="../shared/characters/pixel/skin_002/v1/skin_002.js"></script>
+    <!-- 敵 2 人 -->
+    <script src="../shared/characters/pixel/police_001/v2/police_001.js"></script>
+    <script src="../shared/characters/pixel/riot_001/v2/riot_001.js"></script>
+    <!-- ゲーム本体 -->
+    <script src="js/config.js"></script>
+    <script src="js/characters.js"></script>
+    <script src="js/sprites.js"></script>
+    <script src="js/gfx-8bit.js"></script>
+    <script src="js/window-help.js"></script>
+    <script src="js/highscore.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/demo.js"></script>
+    <script src="js/club.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/bgm.js"></script>
+    <script src="js/dot-text.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/touch.js"></script>
+  </body>
+</html>
